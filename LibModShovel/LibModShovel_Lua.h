@@ -23,6 +23,7 @@
 
 namespace LMS {
 	enum HookBitFlags : unsigned long long {
+		SKIP_NONE = (0 << 0),
 		SKIP_NEXT = (1 << 0),
 		SKIP_ORIG = (1 << 1),
 		SKIP_AFTER = (1 << 2),
@@ -32,7 +33,7 @@ namespace LMS {
 	class Lua {
 	private:
 		
-		
+		static HookBitFlags tmpFlags;
 
 		static lua_State* luactx;
 		static CInstance* curSelf;
@@ -44,8 +45,10 @@ namespace LMS {
 
 		static void pushYYObjectBase(lua_State* pL, YYObjectBase* thing);
 		static void pushYYObjectBase(lua_State* pL, const RValue& rv);
+		static void pushYYCScriptArgs(lua_State* pL, int argc, RValue* args[]);
 		static void pushRBuiltinAccessor(lua_State* pL, CInstance* owner, const std::string& name);
 		static std::string getEventName(int evtype);
+
 
 		static void hookRoutineEvent(CInstance* selfinst, CInstance* otherinst);
 
@@ -93,6 +96,8 @@ namespace LMS {
 		static int apiWith(lua_State* pL);
 		static int apiToInstance(lua_State* pL);
 		static int apiCreateAsyncEvent(lua_State* pL);
+		static int apiSignalScriptAction(lua_State* pL);
+		static int apiHookScript(lua_State* pL);
 
 		static RValue luaToRValue(lua_State* pL, int index);
 		static void rvalueToLua(lua_State* pL, RValue& rv);
@@ -108,5 +113,6 @@ namespace LMS {
 		static int luaRuntimeCall(lua_State* pL);
 	public:
 		static void Init();
+		static RValue& HookScriptRoutine(CInstance* selfinst, CInstance* otherinst, RValue& Result, int argc, RValue* args[], unsigned long long index);
 	};
 }

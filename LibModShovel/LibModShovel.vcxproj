@@ -191,6 +191,7 @@
     <ClInclude Include="LibModShovel_Console.h" />
     <ClInclude Include="LibModShovel_GameMaker.h" />
     <ClInclude Include="LibModShovel.h" />
+    <ClInclude Include="LibModShovel_GMAutogen.h" />
     <ClInclude Include="LibModShovel_GMBuiltins.h" />
     <ClInclude Include="LibModShovel_GMConstants.h" />
     <ClInclude Include="LibModShovel_Hooks.h" />
@@ -239,6 +240,7 @@
     <ClCompile Include="LibModShovel_Console.cpp" />
     <ClCompile Include="LibModShovel_GameMaker.cpp" />
     <ClCompile Include="LibModShovel_Global.cpp" />
+    <ClCompile Include="LibModShovel_GMAutogen.cpp" />
     <ClCompile Include="LibModShovel_GMBuiltins.cpp" />
     <ClCompile Include="LibModShovel_GMConstants.cpp" />
     <ClCompile Include="LibModShovel_Hooks.cpp" />
