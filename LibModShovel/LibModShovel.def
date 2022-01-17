@@ -1,0 +1,3 @@
+LIBRARY LIBMODSHOVEL
+EXPORTS
+    MiniDumpWriteDump @10
