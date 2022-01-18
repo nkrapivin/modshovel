@@ -287,6 +287,62 @@ bool LMS::Hooks::ApplyInitHooks() {
 		})
 	};
 
+	LPBYTE pf_JS_GenericObjectConstructor{ fastCodeSearch({
+			// mov eax, dword ptr [esp + param_1]
+			0x8b, 0x44, 0x24, 0x04,
+			// sub esp, 0x10
+			0x83, 0xec, 0x10,
+			// push esi
+			0x56,
+			// mov esi, dword ptr [eax]
+			0x8b, 0x30,
+			// push edi,
+			0x57,
+			// or dword ptr [esi + 0x3c],0x1
+			0x83, 0x4e, 0x3c, 0x01,
+			// mov dword ptr [esi + 0x1c],"Object"
+			0xc7, 0x46, 0x1c,
+			bany, bany, bany, bany,
+			// mov dword ptr [esi + 0x20],func
+			0xc7, 0x46, 0x20,
+			bany, bany, bany, bany,
+			// mov dword ptr [esi + 0x24],func
+			0xc7, 0x46, 0x24,
+			bany, bany, bany, bany
+		})
+	};
+
+	LPBYTE pf_YYObjectBase_Alloc{ fastCodeSearch({
+			// push ebx
+			0x53,
+			// push ebp
+			0x55,
+			// mov ebp, dword ptr [esp + param_3]
+			0x8b, 0x6c, 0x24, 0x14,
+			// push esi
+			0x56,
+			// push edi
+			0x57,
+			// mov esi, dword ptr [ebp*0x4 + addr]
+			0x8b, 0x34, 0xad,
+			bany, bany, bany, bany,
+			// test esi,esi
+			0x85, 0xf6,
+			// jz ...
+			0x74, 0x7d,
+			// mov eax, dword ptr [esi + 8]
+			0x8b, 0x46, 0x08,
+			// mov ebx, dword ptr [esp + param_1]
+			0x8b, 0x5c, 0x24, 0x14,
+			// mov dword ptr [ebp*0x4 + addr],eax
+			0x89, 0x04, 0xad
+			/* ... */
+		})
+	};
+
+	JS_GenericObjectConstructor = reinterpret_cast<TRoutine>(pf_JS_GenericObjectConstructor);
+	YYObjectBase_Alloc = reinterpret_cast<YYObjectBase_Alloc_t>(pf_YYObjectBase_Alloc);
+
 	LPBYTE pf_YYGML_CallMethod{ &pf_cmp_userfunc[65] };
 	std::uintptr_t pfn_CallMethod{ *reinterpret_cast<std::uintptr_t*>(pf_YYGML_CallMethod) };
 	pfn_CallMethod += reinterpret_cast<std::uintptr_t>(pf_YYGML_CallMethod + sizeof(std::uintptr_t));

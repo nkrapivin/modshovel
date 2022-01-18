@@ -42,6 +42,8 @@ namespace LMS {
 		static void arraySetOwner();
 		static double getInstanceLen();
 		static bool directWith(lua_State* pL, RValue& newself, double ind);
+		static void doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, RValue*& newargarr, RValue**& newargs, int& newargc, RValue**& args);
+		static void doEventHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename);
 
 		static void pushYYObjectBase(lua_State* pL, YYObjectBase* thing);
 		static void pushYYObjectBase(lua_State* pL, const RValue& rv);

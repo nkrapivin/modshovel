@@ -42,6 +42,9 @@ YYGML_CallMethod_t YYGML_CallMethod{};
 
 Create_Async_Event_t Create_Async_Event{};
 
+TRoutine JS_GenericObjectConstructor{};
+YYObjectBase_Alloc_t YYObjectBase_Alloc{};
+
 inline bool YYFree_valid_vkind(const unsigned rvkind) {
 	return (((1 << VALUE_STRING) | (1 << VALUE_OBJECT) | (1 << VALUE_ARRAY)) & (1 << (rvkind & 0x1f))) != 0;
 }
@@ -228,7 +231,17 @@ void* RValue::operator new(size_t size) {
 	return mem;
 }
 
+void* RValue::operator new[](size_t size) {
+	void* mem{ nullptr };
+	MMSetLength(&mem, size);
+	return mem;
+}
+
 void RValue::operator delete(void* p) {
+	if (p) YYFree(p);
+}
+
+void RValue::operator delete[](void* p) {
 	if (p) YYFree(p);
 }
 

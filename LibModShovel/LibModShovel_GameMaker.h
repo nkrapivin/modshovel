@@ -216,8 +216,8 @@ public:
 	RValue(PFUNC_YYGMLScript_Internal v, YYObjectBase* mtself); /* method constructor */
 	RValue& operator=(const RValue& other);
 	/* stringpointer stuff better be explicit */
-	RValue(YYObjectBase* obj);
-	RValue(RefDynamicArrayOfRValue* v);
+	explicit RValue(YYObjectBase* obj);
+	explicit RValue(RefDynamicArrayOfRValue* v);
 	explicit RValue(std::nullptr_t);
 	explicit RValue(void* v);
 	explicit RValue(const char* v);
@@ -227,7 +227,9 @@ public:
 	~RValue();
 
 	void* operator new(size_t size);
+	void* operator new[](size_t size);
 	void operator delete(void* p);
+	void operator delete[](void* p);
 };
 #pragma pack(pop)
 
@@ -688,3 +690,8 @@ extern TRoutine F_String;
 
 using Create_Async_Event_t = void(*)(int dsmapindex, int event_index);
 extern Create_Async_Event_t Create_Async_Event;
+
+extern TRoutine JS_GenericObjectConstructor;
+
+using YYObjectBase_Alloc_t = YYObjectBase*(*)(uint _n, uint _rvalueInitType, YYObjectBaseKind _objectkind, bool force_allocate_yyvars);
+extern YYObjectBase_Alloc_t YYObjectBase_Alloc;
