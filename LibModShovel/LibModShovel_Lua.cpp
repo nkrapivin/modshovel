@@ -30,6 +30,7 @@ TRoutine F_ScriptGetName{};
 
 TRoutine F_VariableStructSet{};
 TRoutine F_VariableStructGet{};
+TRoutine F_VariableStructNamesCount{};
 TRoutine F_ArraySetOwner{};
 TRoutine F_JSGetInstance{}; // instance id to YYObjectBase
 TRoutine F_Method{};
@@ -39,6 +40,7 @@ TGetVarRoutine GV_EventSubtype{};
 TGetVarRoutine GV_EventObject{};
 TGetVarRoutine GV_InstanceCount{};
 TGetVarRoutine GV_InstanceId{};
+TGetVarRoutine GV_ProgramDirectory{};
 
 struct RBuiltinData {
 	CInstance* owner;
@@ -48,6 +50,54 @@ struct RBuiltinData {
 
 std::unordered_map<unsigned long long, PFUNC_YYGML> LMS::Lua::eventOriginalsMap{};
 std::unordered_map<std::string, std::pair<RVariableRoutine*, LMS::GMBuiltinVariable*>> LMS::Lua::builtinsMap{};
+
+std::string LMS::Lua::getProgramDirectory() {
+	RValue res{ nullptr };
+	GV_ProgramDirectory(curSelf, ARRAY_INDEX_NO_INDEX, &res);
+	std::string sres{ res.pString->get() };
+	sres += "\\"; // program_directory does not end with a backslash.
+	return sres;
+}
+
+std::wstring LMS::Lua::stringToWstring(const std::string& str) {
+	std::wstring ws{};
+
+	// ws is already empty.
+	if (str.size() == 0)
+		return ws;
+
+	int siz{ MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.c_str(), str.size(), nullptr, 0) };
+	if (siz <= 0)
+		throw std::runtime_error{ "String conversion failed (1)." };
+
+	ws.resize(siz);
+
+	siz = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.c_str(), str.size(), ws.data(), siz);
+	if (siz <= 0)
+		throw std::runtime_error{ "String conversion failed (2)." };
+
+	return ws;
+}
+
+std::string LMS::Lua::wstringToString(const std::wstring& str) {
+	std::string as{};
+
+	// ws is already empty.
+	if (str.size() == 0)
+		return as;
+
+	int siz{ WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, str.c_str(), str.size(), nullptr, 0, nullptr, nullptr) };
+	if (siz <= 0)
+		throw std::runtime_error{ "String conversion failed (1)." };
+
+	as.resize(siz);
+
+	siz = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, str.c_str(), str.size(), as.data(), siz, nullptr, nullptr);
+	if (siz <= 0)
+		throw std::runtime_error{ "String conversion failed (2)." };
+
+	return as;
+}
 
 int LMS::Lua::apiDebugEnterRepl(lua_State* pL) {
 	std::cout << "Entering REPL loop, type 'quit' to continue..." << std::endl;
@@ -187,94 +237,99 @@ void LMS::Lua::pushYYCScriptArgs(lua_State* pL, int argc, RValue* args[]) {
 }
 
 void LMS::Lua::doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, RValue*& newargarr, RValue**& newargs, int& newargc, RValue**& args) {
-	if (lua_type(luactx, -1) != LUA_TNIL) {
+	if (lua_type(luactx, -1) == LUA_TNIL) return;
+
+	lua_len(luactx, -1);
+	auto tablen{ static_cast<lua_Integer>(lua_tonumber(luactx, -1)) };
+	lua_pop(luactx, 1);
+
+	
+	for (lua_Integer i{ 0 }; i < tablen; ++i) {
+		// we keep a copy of this table on the stack (for reference stuff...)
+		pushYYCScriptArgs(luactx, newargc, newargs);
+
+		// function
+		lua_geti(luactx, -2, 1 + i);
+		if (lua_type(luactx, -1) == LUA_TNIL) {
+			// ignore nil entries.
+			lua_pop(luactx, 1);
+			continue;
+		}
+
+		// self&other
+		pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(curSelf));
+		if (curSelf != curOther) {
+			pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(curOther));
+		}
+		else {
+			// literally duplicate self.
+			lua_pushvalue(luactx, -1);
+		}
+
+		// args:
+		lua_pushvalue(luactx, -4);
+
+		// result:
+		rvalueToLua(luactx, Result);
+
+		tmpFlags = HookBitFlags::SKIP_NONE;
+
+		// prepare stacktrace:
+		auto actualstname{ stacktracename + "_" + std::to_string(1 + i)};
+		SYYStackTrace __stack{ actualstname.c_str(), 1 };
+
+		auto ok{ lua_pcall(luactx, 4, 1, 0) };
+		if (ok != LUA_OK) {
+			auto msg{ lua_tostring(luactx, -1) };
+			if (!msg) msg = "<LMS: unknown error message!>";
+			Global::throwError(prefix + msg);
+		}
+
+		if (callorig) callorig = (tmpFlags & HookBitFlags::SKIP_ORIG) == 0;
+		if (callafter) callafter = (tmpFlags & HookBitFlags::SKIP_AFTER) == 0;
+		if (tmpFlags & HookBitFlags::SKIP_TO) {
+			lua_pop(luactx, 2); // pop result and args.
+			break;
+		}
+
+		if (tmpFlags & HookBitFlags::SKIP_NEXT) {
+			lua_pop(luactx, 2); // pop result and args.
+			++i;
+			continue;
+		}
+
+		// fetch result:
+		Result = luaToRValue(luactx, -1);
+		lua_pop(luactx, 1); // pop result
+
+		// fetch args, they *should* be at the stacktop:
 		lua_len(luactx, -1);
-		auto tablen{ static_cast<lua_Integer>(lua_tonumber(luactx, -1)) };
+		newargc = static_cast<int>(lua_tonumber(luactx, -1));
 		lua_pop(luactx, 1);
 
-		SYYStackTrace __stack{ stacktracename.c_str(), 1 };
-		for (lua_Integer i{ 0 }; i < tablen; ++i) {
-			// we keep a copy of this table on the stack (for reference stuff...)
-			pushYYCScriptArgs(luactx, newargc, newargs);
-
-			// function
-			lua_geti(luactx, -2, 1 + i);
-			if (lua_type(luactx, -1) == LUA_TNIL) {
-				// ignore nil entries.
-				lua_pop(luactx, 1);
-				continue;
-			}
-
-			// self&other
-			pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(curSelf));
-			if (curSelf != curOther) {
-				pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(curOther));
-			}
-			else {
-				// literally duplicate self.
-				lua_pushvalue(luactx, -1);
-			}
-
-			// args:
-			lua_pushvalue(luactx, -4);
-
-			// result:
-			rvalueToLua(luactx, Result);
-
-			tmpFlags = HookBitFlags::SKIP_NONE;
-			auto ok{ lua_pcall(luactx, 4, 1, 0) };
-			if (ok != LUA_OK) {
-				auto msg{ lua_tostring(luactx, -1) };
-				if (!msg) msg = "<LMS: unknown error message!>";
-				Global::throwError(prefix + msg);
-			}
-
-			if (callorig) callorig = (tmpFlags & HookBitFlags::SKIP_ORIG) == 0;
-			if (callafter) callafter = (tmpFlags & HookBitFlags::SKIP_AFTER) == 0;
-			if (tmpFlags & HookBitFlags::SKIP_TO) {
-				lua_pop(luactx, 2); // pop result and args.
-				break;
-			}
-
-			if (tmpFlags & HookBitFlags::SKIP_NEXT) {
-				lua_pop(luactx, 2); // pop result and args.
-				++i;
-				continue;
-			}
-
-			// fetch result:
-			Result = luaToRValue(luactx, -1);
-			lua_pop(luactx, 1); // pop result
-
-			// fetch args, they *should* be at the stacktop:
-			lua_len(luactx, -1);
-			newargc = static_cast<int>(lua_tonumber(luactx, -1));
-			lua_pop(luactx, 1);
-
-			if (newargs != args && newargs) {
-				delete[] newargs;
-			}
-
-			if (newargarr) {
-				delete[] newargarr;
-			}
-
-			newargarr = nullptr;
-			newargs = nullptr;
-
-			if (newargc > 0) {
-				newargarr = new RValue[newargc];
-				newargs = new RValue*[newargc];
-				for (int i{ 0 }; i < newargc; ++i) {
-					lua_geti(luactx, -1, 1 + i);
-					newargarr[i] = luaToRValue(luactx, -1);
-					lua_pop(luactx, 1);
-					newargs[i] = &newargarr[i];
-				}
-			}
-
-			lua_pop(luactx, 1); // pop args table that we kept on the stack.
+		if (newargs != args && newargs) {
+			delete[] newargs;
 		}
+
+		if (newargarr) {
+			delete[] newargarr;
+		}
+
+		newargarr = nullptr;
+		newargs = nullptr;
+
+		if (newargc > 0) {
+			newargarr = new RValue[newargc];
+			newargs = new RValue*[newargc];
+			for (int i{ 0 }; i < newargc; ++i) {
+				lua_geti(luactx, -1, 1 + i);
+				newargarr[i] = luaToRValue(luactx, -1);
+				lua_pop(luactx, 1);
+				newargs[i] = &newargarr[i];
+			}
+		}
+
+		lua_pop(luactx, 1); // pop args table that we kept on the stack.
 	}
 }
 
@@ -295,23 +350,38 @@ RValue& LMS::Lua::HookScriptRoutine(CInstance* selfinst, CInstance* otherinst, R
 
 	auto callorig{ true };
 	auto callafter{ true };
+	auto skiphooks{ false };
 
 	lua_getglobal(luactx, "LMS");
-	lua_getfield(luactx, -1, "Garbage");
+
+	lua_pushstring(luactx, "Garbage");
+	lua_gettable(luactx, -2);
+
+	/* if Garbage is nil, skip hooks. */
+	if (lua_type(luactx, -1) == LUA_TNIL) {
+		skiphooks = true;
+		// the nil garbage will be poped below:
+	}
 
 	/* before hooks first! */
-	lua_getfield(luactx, -1, beforekey.c_str());
-	doScriptHookCall(callorig, callafter, "Before", beforekey, Result, newargarr, newargs, newargc, args);
-	lua_pop(luactx, 1); // pop before table.
+	if (!skiphooks) {
+		lua_pushstring(luactx, beforekey.c_str());
+		lua_gettable(luactx, -2);
+		doScriptHookCall(callorig, callafter, "Before", beforekey, Result, newargarr, newargs, newargc, args);
+		lua_pop(luactx, 1); // pop before table.
+	}
 
 	if (callorig && trampoline) {
 		trampoline(selfinst, otherinst, Result, newargc, newargs);
 	}
 
 	/* after hooks */
-	lua_getfield(luactx, -1, afterkey.c_str());
-	doScriptHookCall(callorig, callafter, "After", beforekey, Result, newargarr, newargs, newargc, args);
-	lua_pop(luactx, 1); // pop after table.
+	if (!skiphooks) {
+		lua_pushstring(luactx, afterkey.c_str());
+		lua_gettable(luactx, -2);
+		doScriptHookCall(callorig, callafter, "After", beforekey, Result, newargarr, newargs, newargc, args);
+		lua_pop(luactx, 1); // pop after table.
+	}
 
 	/* pop garbage and lms */
 	lua_pop(luactx, 1); // garbage
@@ -336,57 +406,60 @@ RValue& LMS::Lua::HookScriptRoutine(CInstance* selfinst, CInstance* otherinst, R
 }
 
 void LMS::Lua::doEventHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename) {
-	if (lua_type(luactx, -1) != LUA_TNIL) {
-		lua_len(luactx, -1);
-		auto tablen{ static_cast<lua_Integer>(lua_tonumber(luactx, -1)) };
-		lua_pop(luactx, 1);
+	if (lua_type(luactx, -1) == LUA_TNIL) return;
 
-		SYYStackTrace __stack{ stacktracename.c_str(), 1 };
-		for (lua_Integer i{ 0 }; i < tablen; ++i) {
-			auto before{ lua_gettop(luactx) };
-			lua_geti(luactx, -1, 1 + i);
-			if (lua_type(luactx, -1) == LUA_TNIL) {
-				// ignore nil entries.
-				lua_pop(luactx, 1);
-				continue;
+	lua_len(luactx, -1);
+	auto tablen{ static_cast<lua_Integer>(lua_tonumber(luactx, -1)) };
+	lua_pop(luactx, 1);
+
+	for (lua_Integer i{ 0 }; i < tablen; ++i) {
+		auto before{ lua_gettop(luactx) };
+		lua_geti(luactx, -1, 1 + i);
+		if (lua_type(luactx, -1) == LUA_TNIL) {
+			// ignore nil entries.
+			lua_pop(luactx, 1);
+			continue;
+		}
+
+		pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(curSelf));
+		if (curSelf != curOther) {
+			pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(curOther));
+		}
+		else {
+			lua_pushvalue(luactx, -1);
+		}
+
+		// prepare stacktrace:
+		auto actualstname{ stacktracename + "_" + std::to_string(1 + i) };
+		SYYStackTrace __stack{ actualstname.c_str(), 1 };
+
+		auto ok{ lua_pcall(luactx, 2, LUA_MULTRET, 0) };
+		if (ok != LUA_OK) {
+			auto msg{ lua_tostring(luactx, -1) };
+			if (!msg) msg = "<LMS: unknown error message>";
+			Global::throwError(prefix + msg);
+		}
+
+		auto after{ lua_gettop(luactx) };
+		auto diff{ after - before };
+
+		if (diff != 0) {
+			auto action{ HookBitFlags::SKIP_NONE };
+			if (lua_type(luactx, -1) == LUA_TNUMBER) action = static_cast<HookBitFlags>(lua_tonumber(luactx, -1));
+			lua_pop(luactx, 1);
+			--diff;
+			if (diff > 0) {
+				lua_pop(luactx, diff);
 			}
 
-			pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(curSelf));
-			if (curSelf != curOther) {
-				pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(curOther));
-			}
-			else {
-				lua_pushvalue(luactx, -1);
+			if (callorig) callorig = (action & HookBitFlags::SKIP_ORIG) == 0;
+			if (callafter) callafter = (action & HookBitFlags::SKIP_AFTER) == 0;
+			if (action & HookBitFlags::SKIP_TO) {
+				break;
 			}
 
-			auto ok{ lua_pcall(luactx, 2, LUA_MULTRET, 0) };
-			if (ok != LUA_OK) {
-				auto msg{ lua_tostring(luactx, -1) };
-				if (!msg) msg = "<LMS: unknown error message>";
-				Global::throwError(prefix + msg);
-			}
-
-			auto after{ lua_gettop(luactx) };
-			auto diff{ after - before };
-
-			if (diff != 0) {
-				auto action{ HookBitFlags::SKIP_NONE };
-				if (lua_type(luactx, -1) == LUA_TNUMBER) action = static_cast<HookBitFlags>(lua_tonumber(luactx, -1));
-				lua_pop(luactx, 1);
-				--diff;
-				if (diff > 0) {
-					lua_pop(luactx, diff);
-				}
-
-				if (callorig) callorig = (action & HookBitFlags::SKIP_ORIG) == 0;
-				if (callafter) callafter = (action & HookBitFlags::SKIP_AFTER) == 0;
-				if (action & HookBitFlags::SKIP_TO) {
-					break;
-				}
-
-				if (action & HookBitFlags::SKIP_NEXT) {
-					++i;
-				}
+			if (action & HookBitFlags::SKIP_NEXT) {
+				++i;
 			}
 		}
 	}
@@ -429,17 +502,29 @@ void LMS::Lua::hookRoutineEvent(CInstance* selfinst, CInstance* otherinst) {
 
 	auto callorig{ true };
 	auto callafter{ true };
+	auto skiphooks{ false };
 
 	auto func{ eventOriginalsMap[key] };
 
 	/* push LMS.Garbage to the stack: */
 	lua_getglobal(luactx, "LMS");
-	lua_getfield(luactx, -1, "Garbage");
+
+	lua_pushstring(luactx, "Garbage");
+	lua_gettable(luactx, -2);
+
+	// if LMS.Garbage is nil, skip to the restore part.
+	if (lua_type(luactx, -1) == LUA_TNIL) {
+		skiphooks = true;
+		// it will be poped below:
+	}
 
 	/* before hooks first! */
-	lua_getfield(luactx, -1, beforeKey.c_str());
-	doEventHookCall(callorig, callafter, "Fatal Lua error in Before event hook:\r\n", beforeKey);
-	lua_pop(luactx, 1);
+	if (!skiphooks) {
+		lua_pushstring(luactx, beforeKey.c_str());
+		lua_gettable(luactx, -2);
+		doEventHookCall(callorig, callafter, "Fatal Lua error in Before event hook:\r\n", beforeKey);
+		lua_pop(luactx, 1); // pop object table (or nil)
+	}
 
 	/* call the original if defined: */
 	if (callorig && func) {
@@ -447,9 +532,16 @@ void LMS::Lua::hookRoutineEvent(CInstance* selfinst, CInstance* otherinst) {
 	}
 
 	/* and now, after hooks! */
-	lua_getfield(luactx, -1, afterKey.c_str());
-	doEventHookCall(callorig, callafter, "Fatal Lua error in After event hook:\r\n", afterKey);
-	lua_pop(luactx, 1);
+	if (!skiphooks) {
+		lua_pushstring(luactx, afterKey.c_str());
+		lua_gettable(luactx, -2);
+		doEventHookCall(callorig, callafter, "Fatal Lua error in After event hook:\r\n", afterKey);
+		lua_pop(luactx, 1); // pop object table (or nil)
+	}
+
+	/* pop lms and garbage */
+	lua_pop(luactx, 1); // pop garbage
+	lua_pop(luactx, 1); // pop LMS
 
 	/* restore curself and curother */
 	curSelf = tmpself;
@@ -558,8 +650,65 @@ int LMS::Lua::mtArrayTostring(lua_State* pL) {
 	return 1;
 }
 
+int LMS::Lua::mtArrayNext(lua_State* pL) {
+	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Array__")) };
+	
+	RValue arraylen{ 0.0 };
+	F_ArrayLength(arraylen, curSelf, curOther, 1, *rptr);
+
+	// -1 cuz if the argument is `nil`, the index increments and we start at 0.
+	lua_Integer arrayind{ -1 };
+	if (lua_gettop(pL) > 1 && lua_type(pL, 2) != LUA_TNIL) {
+		// convert lua array index to gml index.
+		// all further operations will use gml array indexing.
+		arrayind = static_cast<lua_Integer>(lua_tonumber(pL, 2) - 1.0);
+	}
+
+	// advance to next element.
+	// so if an index 0 is passed on a 2 length array, we get the [1]th element
+	++arrayind;
+
+	// index out of range?
+	if (arrayind < 0 || arrayind >= static_cast<lua_Integer>(arraylen.val)) {
+		lua_pushnil(pL);
+		return 1;
+	}
+
+	// otherwise:
+	RValue res{};
+	RValue args[]{ **rptr, static_cast<double>(arrayind) };
+	F_ArrayGet(res, curSelf, curOther, 2, args);
+
+	lua_pushinteger(pL, 1 + arrayind);
+	rvalueToLua(pL, res);
+	return 2;
+}
+
+int LMS::Lua::mtArrayPairs(lua_State* pL) {
+	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Array__")) };
+
+	lua_pushcfunction(pL, &mtArrayNext);
+	lua_pushvalue(pL, 1);
+	lua_pushnil(pL);
+	return 3;
+}
+
+int LMS::Lua::mtArrayIpairs(lua_State* pL) {
+	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Array__")) };
+
+	lua_pushcfunction(pL, &mtArrayNext);
+	lua_pushvalue(pL, 1);
+	lua_pushinteger(pL, 0);
+	return 3;
+}
+
 int LMS::Lua::mtStructIndex(lua_State* pL) {
 	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+
+	if (lua_type(pL, 2) == LUA_TNIL) {
+		lua_pushnil(pL);
+		return 1;
+	}
 
 	if ((*optr)->pObj->m_kind == YYObjectBaseKind::KIND_CINSTANCE) {
 		auto n{ lua_tostring(pL, 2) };
@@ -584,6 +733,8 @@ int LMS::Lua::mtStructIndex(lua_State* pL) {
 
 int LMS::Lua::mtStructNewindex(lua_State* pL) {
 	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+
+	luaL_argcheck(pL, lua_type(pL, 2) != LUA_TNIL, 2, "struct new key cannot be nil.");
 
 	RValue res{ nullptr };
 	RValue args[]{ **optr, luaToRValue(pL, 2), luaToRValue(pL, 3) };
@@ -612,9 +763,24 @@ int LMS::Lua::mtStructTostring(lua_State* pL) {
 	return 1;
 }
 
+int LMS::Lua::mtStructLen(lua_State* pL) {
+	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+
+	RValue res{ 0.0 };
+	F_VariableStructNamesCount(res, curSelf, curOther, 1, *rptr);
+
+	rvalueToLua(pL, res);
+	return 1;
+}
+
 int LMS::Lua::mtBuiltinIndex(lua_State* pL) {
 	// ignored
 	auto __tb{ luaL_checkudata(pL, 1, "__LMS_metatable_RValue_TBuiltin__") };
+
+	if (lua_type(pL, 2) == LUA_TNIL) {
+		lua_pushnil(pL);
+		return 1;
+	}
 
 	auto name{ std::string(lua_tostring(pL, 2)) };
 	auto it{ builtinsMap.find(name) };
@@ -644,6 +810,8 @@ int LMS::Lua::mtBuiltinNewindex(lua_State* pL) {
 	// ignored
 	auto __tb{ luaL_checkudata(pL, 1, "__LMS_metatable_RValue_TBuiltin__") };
 
+	luaL_argcheck(pL, lua_type(pL, 2) != LUA_TNIL, 2, "new key cannot be nil.");
+
 	auto name{ std::string(lua_tostring(pL, 2)) };
 	auto theval{ luaToRValue(pL, 3) };
 	auto it{ builtinsMap.find(name) };
@@ -666,6 +834,11 @@ int LMS::Lua::mtBuiltinNewindex(lua_State* pL) {
 int LMS::Lua::mtRBuiltinIndex(lua_State* pL) {
 	auto rbptr{ reinterpret_cast<RBuiltinData*>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_RBuiltin__")) };
 
+	if (lua_type(pL, 2) == LUA_TNIL) {
+		lua_pushnil(pL);
+		return 1;
+	}
+
 	RValue res{ nullptr };
 	auto ind{ static_cast<int>(lua_tonumber(pL, 2)) };
 	
@@ -682,6 +855,8 @@ int LMS::Lua::mtRBuiltinIndex(lua_State* pL) {
 
 int LMS::Lua::mtRBuiltinNewindex(lua_State* pL) {
 	auto rbptr{ reinterpret_cast<RBuiltinData*>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_RBuiltin__")) };
+
+	luaL_argcheck(pL, lua_type(pL, 2) != LUA_TNIL, 2, "new index cannot be nil.");
 
 	auto ind{ static_cast<int>(lua_tonumber(pL, 2)) };
 	auto theval{ luaToRValue(pL, 3) };
@@ -714,6 +889,60 @@ int LMS::Lua::mtRBuiltinLen(lua_State* pL) {
 
 	rvalueToLua(pL, res);
 	return 1;
+}
+
+int LMS::Lua::mtRBuiltinNext(lua_State* pL) {
+	auto rbptr{ reinterpret_cast<RBuiltinData*>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_RBuiltin__")) };
+
+	lua_Integer arrayind{ -1 };
+	RValue arraylen{ 0.0 }; // initialize to real
+
+	if (strcmp(rbptr->var->f_name, "instance_id") == 0) {
+		GV_InstanceCount(rbptr->owner, ARRAY_INDEX_NO_INDEX, &arraylen);
+	}
+	else {
+		arraylen.val = static_cast<double>(rbptr->extra->arrayLength);
+	}
+
+	if (lua_gettop(pL) > 1 && lua_type(pL, 2) != LUA_TNIL) {
+		arrayind = static_cast<lua_Integer>(lua_tonumber(pL, 2) - 1.0);
+	}
+
+	// advance to next array element.
+	++arrayind;
+
+	if (arrayind < 0 || arrayind >= static_cast<lua_Integer>(arraylen.val)) {
+		lua_pushnil(pL);
+		return 1;
+	}
+
+	RValue res{ nullptr };
+	auto ok{ rbptr->var->f_getroutine(rbptr->owner, static_cast<int>(arrayind), &res) };
+	if (!ok) {
+		return luaL_error(pL, "Failed to index built-in variable %s[%d].", rbptr->extra->name, static_cast<int>(1 + arrayind));
+	}
+
+	lua_pushinteger(pL, 1 + arrayind);
+	rvalueToLua(pL, res);
+	return 2;
+}
+
+int LMS::Lua::mtRBuiltinPairs(lua_State* pL) {
+	auto rbptr{ reinterpret_cast<RBuiltinData*>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_RBuiltin__")) };
+
+	lua_pushcfunction(pL, &mtRBuiltinNext);
+	lua_pushvalue(pL, 1);
+	lua_pushnil(pL);
+	return 3;
+}
+
+int LMS::Lua::mtRBuiltinIpairs(lua_State* pL) {
+	auto rbptr{ reinterpret_cast<RBuiltinData*>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_RBuiltin__")) };
+
+	lua_pushcfunction(pL, &mtRBuiltinNext);
+	lua_pushvalue(pL, 1);
+	lua_pushinteger(pL, 0);
+	return 3;
 }
 
 int LMS::Lua::mtOneWayMethodCall(lua_State* pL) {
@@ -800,12 +1029,44 @@ int LMS::Lua::apiSignalScriptAction(lua_State* pL) {
 	return 0;
 }
 
-int LMS::Lua::apiHookScript(lua_State* pL) {
-	auto myind{ static_cast<lua_Integer>(lua_tonumber(pL, 1)) };
-	
-	luaL_argcheck(pL, myind >= 100000,
-		1, "Script index must be 100000 or larger!");
+int LMS::Lua::apiSetHookFunction(lua_State* pL) {
+	luaL_argcheck(pL, lua_type(pL, 1) == LUA_TSTRING, 1, "arg1 must be a unique hook identifier.");
+	luaL_argcheck(pL, lua_gettop(pL) > 1, 2, "arg2 is not provided to function, must be either a callable or nil.");
 
+	auto hookid{ lua_tostring(pL, 1) };
+	luaL_argcheck(pL, hookid != nullptr, 1, "arg1 is nullptr?!");
+
+	auto realhookid{ std::string(hookid) };
+	auto lastpos{ realhookid.find_last_of('_') };
+	luaL_argcheck(pL, lastpos != realhookid.npos, 1, "hook id is invalid.");
+	auto indxstring{ realhookid.substr(lastpos + 1) };
+	auto tablename{ realhookid.substr(0, lastpos) };
+	auto indx{ std::stoll(indxstring) };
+	luaL_argcheck(pL, indx < 1, 1, "hook index is invalid.");
+
+	lua_getglobal(pL, "LMS");
+
+	lua_pushstring(pL, "Garbage");
+	lua_gettable(pL, -2);
+
+	lua_pushstring(pL, tablename.c_str());
+	lua_gettable(pL, -2);
+
+	lua_pushinteger(pL, indx);
+	lua_pushvalue(pL, 2);
+	lua_settable(pL, -3);
+
+	lua_pop(pL, 1); // hook table
+	lua_pop(pL, 1); // garbage
+	lua_pop(pL, 1); // lms
+
+	// return back the hook id.
+	// this may return a new hook id in the future.
+	lua_pushvalue(pL, 1);
+	return 1;
+}
+
+int LMS::Lua::apiHookScript(lua_State* pL) {
 	luaL_argcheck(pL, lua_type(pL, 2) == LUA_TSTRING &&
 		(strcmp(lua_tostring(pL, 2), "before") == 0 || strcmp(lua_tostring(pL, 2), "after") == 0),
 		2, "Hook type must be either 'before' or 'after'.");
@@ -815,29 +1076,48 @@ int LMS::Lua::apiHookScript(lua_State* pL) {
 
 	auto hooktype{ lua_tostring(pL, 2) };
 
-	RValue scrname{ nullptr };
-	RValue args[]{ myind };
-	F_ScriptGetName(scrname, curSelf, curOther, 1, args);
-	const char* myn{ scrname.pString->get() };
+	const char* myn{ "<undefined>" };
+	std::string realname{};
+
+	if (lua_type(pL, 1) == LUA_TNUMBER) {
+		RValue scrname{ nullptr };
+		RValue args[]{ lua_tonumber(pL, 1) };
+		F_ScriptGetName(scrname, curSelf, curOther, 1, args);
+		myn = scrname.pString->get();
+		realname = std::string("gml_Script_") + myn;
+	}
+	else {
+		myn = lua_tostring(pL, 1);
+		luaL_argcheck(pL, myn != nullptr, 1, "arg1 can either be a full code entry name, or a script index.");
+		realname = myn;
+	}
+
 	luaL_argcheck(pL, myn && myn[0] != '<', 1, "Script does not exist!");
-
-	std::string realname{ std::string("gml_Script_") + myn };
-
 	bool found{ false };
 
 	for (auto i{ 0 }; i < g_pLLVMVars->nYYCode; ++i) {
 		if (realname == g_pLLVMVars->pGMLFuncs[i].pName) {
-			// found!
-			myind -= 100000;
+			auto fun{ g_pLLVMVars->pGMLFuncs[i].pFunc };
+
+			// try to find a scapegoat func.
+			auto myind{ 0 };
+			for (auto ii{ 0 }; true; ++ii) {
+				if (!ScapegoatScripts[ii].f) {
+					return luaL_argerror(pL, 1, "Reached the end of the scapegoat script table.");
+				}
+
+				if (!ScapegoatScripts[ii].n || realname == ScapegoatScripts[ii].n) {
+					myind = ii;
+					break;
+				}
+			}
+
 			if (ScapegoatScripts[myind].n) {
 				// already hooked?
 				found = true;
 				break;
 			}
-
-			luaL_argcheck(pL, (ScapegoatScripts[myind].f), 1, "Script index exceeds limits of the hook table!");
-
-			auto fun{ g_pLLVMVars->pGMLFuncs[i].pFunc };
+			
 			auto ok{ MH_CreateHook(fun, ScapegoatScripts[myind].f, reinterpret_cast<LPVOID*>(&ScapegoatScripts[myind].t)) };
 			if (ok != MH_STATUS::MH_OK) {
 				Global::throwError("Failed to create a script hook due to minhook error!");
@@ -854,7 +1134,7 @@ int LMS::Lua::apiHookScript(lua_State* pL) {
 		}
 	}
 
-	luaL_argcheck(pL, found, 1, "Unable to find a script in the YYGML table.");
+	luaL_argcheck(pL, found == true, 1, "Unable to find a script in the YYGML table.");
 
 	if (strcmp(hooktype, "before") == 0) {
 		realname += "_Before";
@@ -864,21 +1144,27 @@ int LMS::Lua::apiHookScript(lua_State* pL) {
 	}
 
 	lua_getglobal(pL, "LMS");
-	lua_getfield(pL, -1, "Garbage");
-	lua_getfield(pL, -1, realname.c_str());
+	lua_pushstring(pL, "Garbage");
+	lua_gettable(pL, -2);
+	lua_pushstring(pL, realname.c_str());
+	lua_gettable(pL, -2);
 	if (lua_type(pL, -1) == LUA_TNIL) {
-		lua_pop(pL, 1); // pop nil
-		lua_newtable(pL); // empty table
-		lua_setfield(pL, -2, realname.c_str());
-		lua_getfield(pL, -1, realname.c_str());
+		lua_pop(pL, 1); // pop nil, garbage becomes stacktop.
+		lua_pushstring(pL, realname.c_str()); // key
+		lua_newtable(pL); // value
+		lua_settable(pL, -3);
+		// get the table again:
+		lua_pushstring(pL, realname.c_str());
+		lua_gettable(pL, -2);
 	}
 
 	lua_len(pL, -1);
 	auto tabind{ 1 + static_cast<lua_Integer>(lua_tonumber(pL, -1)) };
 	lua_pop(pL, 1); // length
 
+	lua_pushinteger(pL, tabind);
 	lua_pushvalue(pL, 3);
-	lua_seti(pL, -2, tabind);
+	lua_settable(pL, -3);
 
 	lua_pop(pL, 1); // hook table
 	lua_pop(pL, 1); // 'Garbage'
@@ -887,6 +1173,10 @@ int LMS::Lua::apiHookScript(lua_State* pL) {
 	realname += "_" + std::to_string(tabind);
 	lua_pushstring(pL, realname.c_str());
 	return 1;
+}
+
+int LMS::Lua::apiFileWatch(lua_State* pL) {
+	return luaL_error(pL, "File watcher not implemented yet.");
 }
 
 RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
@@ -1146,21 +1436,27 @@ int LMS::Lua::apiHookEvent(lua_State* pL) {
 	}
 
 	lua_getglobal(pL, "LMS");
-	lua_getfield(pL, -1, "Garbage");
-	lua_getfield(pL, -1, luaIdent.c_str());
-	if (lua_type(pL, -1) == LUA_TNIL) { /* stacktop - Object Table */
-		lua_pop(pL, 1); // pop nil
-		lua_newtable(pL); // empty table
-		lua_setfield(pL, -2, luaIdent.c_str());
-		lua_getfield(pL, -1, luaIdent.c_str());
+	lua_pushstring(pL, "Garbage");
+	lua_gettable(pL, -2);
+	lua_pushstring(pL, luaIdent.c_str());
+	lua_gettable(pL, -2);
+	if (lua_type(pL, -1) == LUA_TNIL) {
+		lua_pop(pL, 1); // pop nil, garbage becomes stacktop.
+		lua_pushstring(pL, luaIdent.c_str()); // key
+		lua_newtable(pL); // value
+		lua_settable(pL, -3);
+		// get the table again:
+		lua_pushstring(pL, luaIdent.c_str());
+		lua_gettable(pL, -2);
 	}
 
 	lua_len(pL, -1); /* stacktop - Object Table */
 	auto tablen{ 1 + static_cast<lua_Integer>(lua_tonumber(pL, -1)) }; /* stacktop - Object Table Len */
 	lua_pop(pL, 1);
 
+	lua_pushinteger(pL, tablen);
 	lua_pushvalue(pL, 5);
-	lua_seti(pL, -2, tablen);
+	lua_settable(pL, -3);
 
 	lua_pop(pL, 1); // hook
 	lua_pop(pL, 1); // garbage
@@ -1208,6 +1504,9 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__gc", &mtArrayGc},
 		{"__len", &mtArrayLen},
 		{"__tostring", &mtArrayTostring},
+		{"__next", &mtArrayNext},
+		{"__pairs", &mtArrayPairs},
+		{"__ipairs", &mtArrayIpairs},
 		{nullptr, nullptr}
 	};
 
@@ -1221,6 +1520,7 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__newindex", &mtStructNewindex},
 		{"__gc", &mtStructGc},
 		{"__tostring", &mtStructTostring},
+		{"__len", &mtStructLen},
 		{nullptr, nullptr}
 	};
 
@@ -1244,6 +1544,9 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__index", &mtRBuiltinIndex},
 		{"__newindex", &mtRBuiltinNewindex},
 		{"__len", &mtRBuiltinLen},
+		{"__next", &mtRBuiltinNext},
+		{"__pairs", &mtRBuiltinPairs},
+		{"__ipairs", &mtRBuiltinIpairs},
 		{nullptr, nullptr}
 	};
 
@@ -1340,6 +1643,9 @@ void LMS::Lua::initRuntime(lua_State* pL) {
 		else if (strcmp(realname, "variable_struct_set") == 0) {
 			F_VariableStructSet = func->f_routine;
 		}
+		else if (strcmp(realname, "variable_struct_names_count") == 0) {
+			F_VariableStructNamesCount = func->f_routine;
+		}
 		else if (strcmp(realname, "shader_get_name") == 0) {
 			F_ShaderGetName = func->f_routine;
 		}
@@ -1389,6 +1695,9 @@ void LMS::Lua::initBuiltin(lua_State* pL) {
 		}
 		else if (strcmp(me.f_name, "instance_count") == 0) {
 			GV_InstanceCount = me.f_getroutine;
+		}
+		else if (strcmp(me.f_name, "program_directory") == 0) {
+			GV_ProgramDirectory = me.f_getroutine;
 		}
 
 		GMBuiltinVariable* v{ nullptr };
@@ -1583,6 +1892,12 @@ void LMS::Lua::initApi(lua_State* pL) {
 	lua_pushstring(pL, "createAsyncEvent");
 	lua_pushcfunction(pL, &apiCreateAsyncEvent);
 	lua_settable(pL, -3);
+	lua_pushstring(pL, "setHookFunction");
+	lua_pushcfunction(pL, &apiSetHookFunction);
+	lua_settable(pL, -3);
+	lua_pushstring(pL, "fileWatch");
+	lua_pushcfunction(pL, &apiFileWatch);
+	lua_settable(pL, -3);
 	lua_pushstring(pL, "toInstance");
 	lua_pushcfunction(pL, &apiToInstance);
 	lua_settable(pL, -3);
@@ -1597,6 +1912,15 @@ void LMS::Lua::initApi(lua_State* pL) {
 	lua_settable(pL, -3);
 	lua_pushstring(pL, "fSkipQueue");
 	lua_pushinteger(pL, HookBitFlags::SKIP_TO);
+	lua_settable(pL, -3);
+	lua_pushstring(pL, "fSkipNone");
+	lua_pushinteger(pL, HookBitFlags::SKIP_NONE);
+	lua_settable(pL, -3);
+	lua_pushstring(pL, "fWithBreak"); // returning a number >0 in a Api.with() statement will break from the loop.
+	lua_pushinteger(pL, 1);
+	lua_settable(pL, -3);
+	lua_pushstring(pL, "fWithContinue"); // a 0 will continue; it's there for readability purposes.
+	lua_pushinteger(pL, 0);
 	lua_settable(pL, -3);
 	/* LMS API end */
 
@@ -1645,7 +1969,7 @@ void LMS::Lua::initConstants(lua_State* pL) {
 	// GameMaker built-ins:
 	for (std::size_t i{ 0 }; true; ++i) {
 		const auto& c{ Constants[i] };
-		if (c.name == nullptr && c.value == 0.0) {
+		if (!c.name) {
 			// {nullptr,0.0} item == end of table
 			break;
 		}

@@ -11,6 +11,8 @@
 #include "LibModShovel_GMBuiltins.h"
 #include <unordered_map>
 #include <string>
+#include <thread>
+#include <mutex>
 
 #include "lua-5.4.3/src/lua.h"
 #include "lua-5.4.3/src/lualib.h"
@@ -42,6 +44,11 @@ namespace LMS {
 		static void arraySetOwner();
 		static double getInstanceLen();
 		static bool directWith(lua_State* pL, RValue& newself, double ind);
+
+		static std::wstring stringToWstring(const std::string& str);
+		static std::string wstringToString(const std::wstring& str);
+		static std::string getProgramDirectory();
+
 		static void doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, RValue*& newargarr, RValue**& newargs, int& newargc, RValue**& args);
 		static void doEventHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename);
 
@@ -61,8 +68,6 @@ namespace LMS {
 
 		static int scriptCall(lua_State* pL);
 
-		
-
 		/* metamethods */
 
 		/* RArray */
@@ -71,12 +76,16 @@ namespace LMS {
 		static int mtArrayNewindex(lua_State* pL);
 		static int mtArrayGc(lua_State* pL);
 		static int mtArrayTostring(lua_State* pL);
+		static int mtArrayNext(lua_State* pL);
+		static int mtArrayPairs(lua_State* pL);
+		static int mtArrayIpairs(lua_State* pL);
 
 		/* YYObjectBase or CInstance */
 		static int mtStructIndex(lua_State* pL);
 		static int mtStructNewindex(lua_State* pL);
 		static int mtStructGc(lua_State* pL);
 		static int mtStructTostring(lua_State* pL);
+		static int mtStructLen(lua_State* pL);
 
 		/* LMS.Builtins */
 		static int mtBuiltinIndex(lua_State* pL);
@@ -86,6 +95,9 @@ namespace LMS {
 		static int mtRBuiltinIndex(lua_State* pL);
 		static int mtRBuiltinNewindex(lua_State* pL);
 		static int mtRBuiltinLen(lua_State* pL);
+		static int mtRBuiltinNext(lua_State* pL);
+		static int mtRBuiltinPairs(lua_State* pL);
+		static int mtRBuiltinIpairs(lua_State* pL);
 
 		/* One-way method wrapper */
 		static int mtOneWayMethodCall(lua_State* pL);
@@ -99,7 +111,9 @@ namespace LMS {
 		static int apiToInstance(lua_State* pL);
 		static int apiCreateAsyncEvent(lua_State* pL);
 		static int apiSignalScriptAction(lua_State* pL);
+		static int apiSetHookFunction(lua_State* pL);
 		static int apiHookScript(lua_State* pL);
+		static int apiFileWatch(lua_State* pL);
 
 		static RValue luaToRValue(lua_State* pL, int index);
 		static void rvalueToLua(lua_State* pL, RValue& rv);
