@@ -35,6 +35,11 @@ TRoutine F_ArraySetOwner{};
 TRoutine F_JSGetInstance{}; // instance id to YYObjectBase
 TRoutine F_Method{};
 
+TRoutine F_VariableGlobalSet{};
+TRoutine F_DsMapCreate{};
+TRoutine F_DsMapReplace{};
+TRoutine F_DsMapDelete{};
+
 TGetVarRoutine GV_EventType{};
 TGetVarRoutine GV_EventSubtype{};
 TGetVarRoutine GV_EventObject{};
@@ -50,6 +55,24 @@ struct RBuiltinData {
 
 std::unordered_map<unsigned long long, PFUNC_YYGML> LMS::Lua::eventOriginalsMap{};
 std::unordered_map<std::string, std::pair<RVariableRoutine*, LMS::GMBuiltinVariable*>> LMS::Lua::builtinsMap{};
+double LMS::Lua::pinDsMap{ -1.0 };
+
+std::unordered_map<std::uintptr_t, OVERLAPPED*> LMS::Lua::watcherMap{};
+
+/* called by LMS when a new array or struct wrapper is created and returned to Lua */
+void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
+	RValue res{ nullptr };
+	/* pointers on 32bit are just reinterpret casted to Hash (typedef uint) */
+	RValue args[]{ pinDsMap, RValue{reinterpret_cast<void*>(pObj)}, RValue{pObj} };
+	F_DsMapReplace(res, curSelf, curOther, 3, args);
+}
+
+/* only called by '__gc' metamethods in struct/array wrappers. */
+void LMS::Lua::unpinYYObjectBase(YYObjectBase* pObj) {
+	RValue res{ nullptr };
+	RValue args[]{ pinDsMap, RValue{reinterpret_cast<void*>(pObj)} };
+	F_DsMapDelete(res, curSelf, curOther, 2, args);
+}
 
 std::string LMS::Lua::getProgramDirectory() {
 	RValue res{ nullptr };
@@ -125,11 +148,11 @@ int LMS::Lua::apiDebugEnterRepl(lua_State* pL) {
 			for (auto i{ 0 }; i < diff; ++i) {
 				auto msg{ lua_tostring(pL, -1) };
 				auto typname{ lua_typename(pL, lua_type(pL, -1)) };
-				lua_pop(pL, 1);
 				if (!msg) msg = "<LMS: nullptr string!>";
 				if (!typname) typname = "<LMS: invalid type!>";
 				// [index:type] = value
 				std::cout << "[" << (i + 1) << ":" << typname << "] = " << msg << std::endl;
+				lua_pop(pL, 1);
 			}
 		}
 	}
@@ -186,12 +209,15 @@ std::string LMS::Lua::getEventName(int evtype) {
 void LMS::Lua::pushYYObjectBase(lua_State* pL, YYObjectBase* thing) {
 	auto yyptr{ reinterpret_cast<RValue**>(lua_newuserdatauv(pL, sizeof(RValue*), 0)) };
 	*yyptr = new RValue{ thing };
+	pinYYObjectBase((*yyptr)->pObj);
 	luaL_setmetatable(pL, "__LMS_metatable_RValue_Struct__");
+	
 }
 
 void LMS::Lua::pushYYObjectBase(lua_State* pL, const RValue& rv) {
 	auto yyptr{ reinterpret_cast<RValue**>(lua_newuserdatauv(pL, sizeof(RValue*), 0)) };
 	*yyptr = new RValue{ rv };
+	pinYYObjectBase((*yyptr)->pObj);
 	luaL_setmetatable(pL, "__LMS_metatable_RValue_Struct__");
 }
 
@@ -611,8 +637,19 @@ int LMS::Lua::mtArrayLen(lua_State* pL) {
 int LMS::Lua::mtArrayIndex(lua_State* pL) {
 	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Array__")) };
 
+	// in Lua arrays start at one, in GML at zero, need to decrement the index...
+	auto rind{ lua_tonumber(pL, 2) - 1.0 };
+
+	RValue arrlen{ 0.0 };
+	F_ArrayLength(arrlen, curSelf, curOther, 1, *rptr);
+	if (rind < 0.0 || rind >= arrlen.val) {
+		// fix ipairs()
+		lua_pushnil(pL);
+		return 1;
+	}
+
 	RValue rv{ nullptr };
-	RValue args[]{ **rptr, lua_tonumber(pL, 2) - 1.0 };
+	RValue args[]{ **rptr, rind };
 	F_ArrayGet(rv, curSelf, curOther, 2, args);
 
 	rvalueToLua(pL, rv);
@@ -634,6 +671,7 @@ int LMS::Lua::mtArrayGc(lua_State* pL) {
 
 	/* decrement array ref: */
 	//std::cout << "Freeing array wrapper at " << reinterpret_cast<void*>(*rptr) << std::endl;
+	unpinYYObjectBase((*rptr)->pObj);
 	delete (*rptr);
 
 	return 0;
@@ -643,8 +681,7 @@ int LMS::Lua::mtArrayTostring(lua_State* pL) {
 	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Array__")) };
 
 	RValue res{ nullptr };
-	RValue args[]{ **rptr };
-	F_String(res, curSelf, curOther, 1, args);
+	F_String(res, curSelf, curOther, 1, *rptr);
 
 	lua_pushfstring(pL, "array:%s", res.pString->get());
 	return 1;
@@ -702,6 +739,14 @@ int LMS::Lua::mtArrayIpairs(lua_State* pL) {
 	return 3;
 }
 
+int LMS::Lua::mtArrayEq(lua_State* pL) {
+	auto rptr1{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Array__")) };
+	auto rptr2{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 2, "__LMS_metatable_RValue_Array__")) };
+
+	lua_pushboolean(pL, ((*rptr1)->pArray) == ((*rptr2)->pArray));
+	return 1;
+}
+
 int LMS::Lua::mtStructIndex(lua_State* pL) {
 	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
@@ -747,6 +792,7 @@ int LMS::Lua::mtStructGc(lua_State* pL) {
 	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
 	//std::cout << "Freeing struct wrapper at " << reinterpret_cast<void*>(*optr) << std::endl;
+	unpinYYObjectBase((*optr)->pObj);
 	delete (*optr);
 	
 	return 0;
@@ -770,6 +816,14 @@ int LMS::Lua::mtStructLen(lua_State* pL) {
 	F_VariableStructNamesCount(res, curSelf, curOther, 1, *rptr);
 
 	rvalueToLua(pL, res);
+	return 1;
+}
+
+int LMS::Lua::mtStructEq(lua_State* pL) {
+	auto rptr1{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+	auto rptr2{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 2, "__LMS_metatable_RValue_Struct__")) };
+
+	lua_pushboolean(pL, ((*rptr1)->pObj) == ((*rptr2)->pObj));
 	return 1;
 }
 
@@ -839,13 +893,24 @@ int LMS::Lua::mtRBuiltinIndex(lua_State* pL) {
 		return 1;
 	}
 
-	RValue res{ nullptr };
-	auto ind{ static_cast<int>(lua_tonumber(pL, 2)) };
+	double arrlen{ 0.0 };
+	auto ind{ static_cast<int>(lua_tonumber(pL, 2) - 1.0) };
+
+	arrlen = rbptr->extra->arrayLength;
+	if (strcmp(rbptr->var->f_name, "instance_id") == 0) {
+		arrlen = getInstanceLen();
+	}
+
+	if (ind < 0 || ind >= arrlen) {
+		lua_pushnil(pL);
+		return 1;
+	}
 	
-	if (!rbptr->var->f_getroutine(rbptr->owner, (ind - 1), &res)) {
+	RValue res{ nullptr };
+	if (!rbptr->var->f_getroutine(rbptr->owner, ind, &res)) {
 		Global::throwError(
 			std::string("Failed to get built-in variable ") + std::string(rbptr->var->f_name) + std::string(":\r\n")
-			+ std::string("Lua Array index: ") + std::to_string(ind)
+			+ std::string("Lua Array index: ") + std::to_string(ind + 1)
 		);
 	}
 
@@ -878,10 +943,7 @@ int LMS::Lua::mtRBuiltinLen(lua_State* pL) {
 	RValue res{ 0.0 }; // initialize to real
 
 	if (strcmp(rbptr->var->f_name, "instance_id") == 0) {
-		// instance_id is special, it's length is `instance_count`.
-		if (!GV_InstanceCount(rbptr->owner, ARRAY_INDEX_NO_INDEX, &res)) {
-			Global::throwError("Failed to get instance_count!");
-		}
+		res.val = getInstanceLen();
 	}
 	else {
 		res.val = static_cast<double>(rbptr->extra->arrayLength);
@@ -898,7 +960,7 @@ int LMS::Lua::mtRBuiltinNext(lua_State* pL) {
 	RValue arraylen{ 0.0 }; // initialize to real
 
 	if (strcmp(rbptr->var->f_name, "instance_id") == 0) {
-		GV_InstanceCount(rbptr->owner, ARRAY_INDEX_NO_INDEX, &arraylen);
+		arraylen.val = getInstanceLen();
 	}
 	else {
 		arraylen.val = static_cast<double>(rbptr->extra->arrayLength);
@@ -945,6 +1007,14 @@ int LMS::Lua::mtRBuiltinIpairs(lua_State* pL) {
 	return 3;
 }
 
+int LMS::Lua::mtRBuiltinEq(lua_State* pL) {
+	auto rbptr1{ reinterpret_cast<RBuiltinData*>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_RBuiltin__")) };
+	auto rbptr2{ reinterpret_cast<RBuiltinData*>(luaL_checkudata(pL, 2, "__LMS_metatable_RValue_RBuiltin__")) };
+
+	lua_pushboolean(pL, rbptr1->owner == rbptr2->owner && rbptr1->var == rbptr2->var);
+	return 1;
+}
+
 int LMS::Lua::mtOneWayMethodCall(lua_State* pL) {
 	auto mtptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_OWMethod__")) };
 
@@ -974,6 +1044,8 @@ int LMS::Lua::mtOneWayMethodCall(lua_State* pL) {
 
 int LMS::Lua::mtOneWayMethodGc(lua_State* pL) {
 	auto mtptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_OWMethod__")) };
+
+	unpinYYObjectBase((*mtptr)->pObj);
 	delete (*mtptr);
 
 	//std::cout << "Freeing method wrapper at " << reinterpret_cast<void*>(*mtptr) << std::endl;
@@ -988,6 +1060,14 @@ int LMS::Lua::mtOneWayMethodTostring(lua_State* pL) {
 	F_String(res, curSelf, curOther, 1, args);
 
 	lua_pushfstring(pL, "owmethod:%s", res.pString->get());
+	return 1;
+}
+
+int LMS::Lua::mtOneWayMethodEq(lua_State* pL) {
+	auto rptr1{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_OWMethod__")) };
+	auto rptr2{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 2, "__LMS_metatable_RValue_OWMethod__")) };
+
+	lua_pushboolean(pL, ((*rptr1)->pObj) == ((*rptr2)->pObj));
 	return 1;
 }
 
@@ -1042,7 +1122,7 @@ int LMS::Lua::apiSetHookFunction(lua_State* pL) {
 	auto indxstring{ realhookid.substr(lastpos + 1) };
 	auto tablename{ realhookid.substr(0, lastpos) };
 	auto indx{ std::stoll(indxstring) };
-	luaL_argcheck(pL, indx < 1, 1, "hook index is invalid.");
+	luaL_argcheck(pL, indx > 0, 1, "hook index is invalid.");
 
 	lua_getglobal(pL, "LMS");
 
@@ -1175,8 +1255,214 @@ int LMS::Lua::apiHookScript(lua_State* pL) {
 	return 1;
 }
 
+VOID WINAPI LMS::Lua::ovCompletionRoutine(
+	_In_    DWORD dwErrorCode,
+	_In_    DWORD dwNumberOfBytesTransfered,
+	_Inout_ LPOVERLAPPED lpOverlapped) {
+	
+	static std::unordered_map<DWORD, std::string> s_fileNotifStringify{
+		{0, "error"},
+		{FILE_ACTION_ADDED, "added"},
+		{FILE_ACTION_REMOVED, "removed"},
+		{FILE_ACTION_MODIFIED, "modified"},
+		{FILE_ACTION_RENAMED_OLD_NAME, "renamedOldName"},
+		{FILE_ACTION_RENAMED_NEW_NAME, "renamedNewName"},
+		{FILE_ACTION_RENAMED_NEW_NAME+1, "outOfBounds"}
+	};
+
+	if (dwErrorCode != 0 || dwNumberOfBytesTransfered < 1 || !lpOverlapped) {
+		Global::throwError("ovCompletionRoutine Wtf?");
+	}
+
+	auto* dat{ reinterpret_cast<std::pair<HANDLE, unsigned char*>*>(lpOverlapped->hEvent) };
+	auto hDir{ dat->first };
+	auto luakey{ static_cast<lua_Integer>(reinterpret_cast<std::intptr_t>(hDir)) };
+	auto buf{ dat->second };
+
+	lua_getglobal(luactx, "LMS");
+	lua_pushstring(luactx, "Garbage");
+	lua_gettable(luactx, -2);
+	lua_pushstring(luactx, "Watcher");
+	lua_gettable(luactx, -2);
+
+	for (auto ptr{ buf }, ptrend{ buf + dwNumberOfBytesTransfered };
+		ptr < ptrend;
+		ptr += reinterpret_cast<PFILE_NOTIFY_INFORMATION>(ptr)->NextEntryOffset) {
+		auto windat{ reinterpret_cast<PFILE_NOTIFY_INFORMATION>(ptr) };
+
+		auto before{ lua_gettop(luactx) };
+
+		/* get function: fetch it every time since it may change and we'll need to call the new impl! */
+		lua_pushinteger(luactx, luakey);
+		lua_gettable(luactx, -2);
+
+		/* if null, ignore: */
+		if (lua_type(luactx, -1) == LUA_TNIL) {
+			lua_pop(luactx, 1);
+			continue;
+		}
+
+		/* prepare arguments: */
+		lua_pushinteger(luactx, luakey); // unique handle:
+		
+		lua_newtable(luactx); // the info table:
+		lua_pushstring(luactx, "action");
+		lua_pushstring(luactx, s_fileNotifStringify[windat->Action].c_str());
+		lua_settable(luactx, -3);
+		
+		lua_pushstring(luactx, "fileName");
+		std::string aname{ wstringToString({ windat->FileName, static_cast<std::size_t>(windat->FileNameLength) }) };
+		lua_pushstring(luactx, aname.c_str());
+		lua_settable(luactx, -3);
+
+		/* call: */
+		auto ok{ lua_pcall(luactx, 2, LUA_MULTRET, 0) };
+
+		auto after{ lua_gettop(luactx) };
+		auto diff{ after - before };
+		if (ok != LUA_OK) {
+			/* print the stacktrace: */
+			std::cerr << "Live reload failed for file " << aname << ", stacktrace: --[[" << std::endl;
+			for (auto i{ 0 }; i < diff; ++i) {
+				auto msg{ lua_tostring(luactx, -1) };
+				if (!msg) msg = "<LMS: nullptr string, tostring() failed>";
+
+				std::cerr << "[" << (i + 1) << ":" << lua_typename(luactx, lua_type(luactx, -1)) << "] = " << msg << std::endl;
+				lua_pop(luactx, 1);
+			}
+			std::cerr << "stacktrace end. cancelling event... ]]--" << std::endl;
+
+			/* cancel this event entirely and wait for another file change.*/
+			break;
+		}
+		else if (diff != 0) {
+			/* TODO: figure out some arguments for the return value here? */
+			/* as for now just pop all the return values */
+			lua_pop(luactx, diff);
+		}
+
+		if (windat->NextEntryOffset == 0) {
+			break;
+		}
+	}
+
+	/* balance stack: */
+	lua_pop(luactx, 1); // pop watcher
+	lua_pop(luactx, 1); // pop garbage
+	lua_pop(luactx, 1); // pop lms
+
+	/* memset the buffer to all bits zero. */
+	std::memset(buf, 0, 32768);
+
+	/* restart the watcher */
+	BOOL bOk{ ReadDirectoryChangesW(
+		hDir,
+		dat->second,
+		32768,
+		FALSE,
+		FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME,
+		nullptr,
+		lpOverlapped,
+		&ovCompletionRoutine) };
+
+	if (!bOk) {
+		delete[] buf;
+		CloseHandle(hDir);
+		delete dat;
+		delete lpOverlapped;
+		Global::throwError("Failed to restart the watcher.");
+	}
+}
+
+int LMS::Lua::apiSetFileWatchFunction(lua_State* pL) {
+	lua_getglobal(pL, "LMS");
+	lua_pushstring(pL, "Garbage");
+	lua_gettable(pL, -2);
+	lua_pushstring(pL, "Watcher");
+	lua_gettable(pL, -2);
+	lua_pushvalue(pL, 1);
+	lua_pushvalue(pL, 2);
+	lua_settable(pL, -3);
+	// LMS.Garbage.Watcher[arg1] = arg2
+
+	lua_pop(pL, 1); // watcher
+	lua_pop(pL, 1); // garbage
+	lua_pop(pL, 1); // lms
+
+	// return arg1 for now.
+	lua_pushvalue(pL, 1);
+	return 1;
+}
+
 int LMS::Lua::apiFileWatch(lua_State* pL) {
-	return luaL_error(pL, "File watcher not implemented yet.");
+	if (lua_gettop(pL) < 1 || lua_type(pL, 1) == LUA_TNIL) {
+		auto sleepret{ SleepEx(0, TRUE) };
+		// observe sleepret in VS debugger...
+		return 0;
+	}
+
+	auto lpath{ lua_tostring(pL, 1) };
+	luaL_argcheck(pL, lpath != nullptr && strlen(lpath) > 0, 1, "Path is not a valid string.");
+	luaL_argcheck(pL, lua_type(pL, 2) != LUA_TNIL, 2, "Callable object cannot be nil.");
+
+	std::wstring wpath{ stringToWstring(lpath) };
+
+	HANDLE hDir{
+		CreateFileW(
+			wpath.c_str(),
+			GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+			nullptr,
+			OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+			nullptr
+		)
+	};
+
+	if (!hDir || hDir == INVALID_HANDLE_VALUE) {
+		return luaL_argerror(pL, 1, "Failed to open the directory.");
+	}
+
+	auto ov{ new OVERLAPPED{ 0 } };
+	auto* dat{ new std::pair<HANDLE, unsigned char*>(hDir, new unsigned char[32768]{ '\0' }) };
+	ov->hEvent = dat;
+
+	auto ok{ ReadDirectoryChangesW(
+		hDir,
+		dat->second,
+		32768,
+		FALSE,
+		FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME,
+		nullptr,
+		ov,
+		&ovCompletionRoutine
+	) };
+
+	if (!ok) {
+		CloseHandle(dat->first);
+		delete[] dat->second;
+		delete dat;
+		delete ov;
+		return luaL_argerror(pL, 1, "Failed to setup the filewatcher.");
+	}
+
+	auto luakey{ static_cast<lua_Integer>(reinterpret_cast<std::intptr_t>(hDir)) };
+
+	lua_getglobal(pL, "LMS");
+	lua_pushstring(pL, "Garbage");
+	lua_gettable(pL, -2);
+	lua_pushstring(pL, "Watcher");
+	lua_gettable(pL, -2);
+	lua_pushinteger(pL, luakey);
+	lua_pushvalue(pL, 2);
+	lua_settable(pL, -3);
+	lua_pop(pL, 1); // pop watcher
+	lua_pop(pL, 1); // pop garbage
+	lua_pop(pL, 1); // pop lms
+
+
+	lua_pushinteger(pL, luakey);
+	return 1;
 }
 
 RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
@@ -1341,8 +1627,9 @@ void LMS::Lua::rvalueToLua(lua_State* pL, RValue& rv) {
 
 		case VALUE_ARRAY: {
 			/* push a light array wrapper... */
-			auto rptr{ reinterpret_cast<RValue**>(lua_newuserdatauv(pL, sizeof(RefDynamicArrayOfRValue*), 0)) };
+			auto rptr{ reinterpret_cast<RValue**>(lua_newuserdatauv(pL, sizeof(RValue*), 0)) };
 			*rptr = new RValue{ rv };
+			pinYYObjectBase((*rptr)->pObj);
 			luaL_setmetatable(pL, "__LMS_metatable_RValue_Array__");
 			break;
 		}
@@ -1352,8 +1639,9 @@ void LMS::Lua::rvalueToLua(lua_State* pL, RValue& rv) {
 			YYObjectBase* obj{ rv.pObj };
 			/* methods require a special funny: */
 			if (obj->m_kind == YYObjectBaseKind::KIND_SCRIPTREF) {
-				auto rvptr{ reinterpret_cast<RValue**>(lua_newuserdatauv(pL, sizeof(RValue**), 0)) };
+				auto rvptr{ reinterpret_cast<RValue**>(lua_newuserdatauv(pL, sizeof(RValue*), 0)) };
 				*rvptr = new RValue{ rv };
+				pinYYObjectBase((*rvptr)->pObj);
 				luaL_setmetatable(pL, "__LMS_metatable_RValue_OWMethod__");
 			}
 			else {
@@ -1507,6 +1795,7 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__next", &mtArrayNext},
 		{"__pairs", &mtArrayPairs},
 		{"__ipairs", &mtArrayIpairs},
+		{"__eq", &mtArrayEq},
 		{nullptr, nullptr}
 	};
 
@@ -1521,6 +1810,7 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__gc", &mtStructGc},
 		{"__tostring", &mtStructTostring},
 		{"__len", &mtStructLen},
+		{"__eq", &mtStructEq},
 		{nullptr, nullptr}
 	};
 
@@ -1547,6 +1837,7 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__next", &mtRBuiltinNext},
 		{"__pairs", &mtRBuiltinPairs},
 		{"__ipairs", &mtRBuiltinIpairs},
+		{"__eq", &mtRBuiltinEq},
 		{nullptr, nullptr}
 	};
 
@@ -1559,6 +1850,7 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__call", &mtOneWayMethodCall},
 		{"__gc", &mtOneWayMethodGc},
 		{"__tostring", &mtOneWayMethodTostring},
+		{"__eq", &mtOneWayMethodEq},
 		{nullptr, nullptr}
 	};
 
@@ -1666,8 +1958,35 @@ void LMS::Lua::initRuntime(lua_State* pL) {
 		else if (strcmp(realname, "string") == 0) {
 			F_String = func->f_routine;
 		}
+		else if (strcmp(realname, "ds_map_create") == 0) {
+			F_DsMapCreate = func->f_routine;
+		}
+		else if (strcmp(realname, "variable_global_set") == 0) {
+			F_VariableGlobalSet = func->f_routine;
+		}
+		else if (strcmp(realname, "ds_map_replace") == 0) {
+			F_DsMapReplace = func->f_routine;
+		}
+		else if (strcmp(realname, "ds_map_delete") == 0) {
+			F_DsMapDelete = func->f_routine;
+		}
 	}
 	/* initRuntime end */
+
+	/* create a ds map for pinnable objects. */
+	RValue dsm{ -1.0 };
+	F_DsMapCreate(dsm, curSelf, curOther, 0, nullptr);
+	
+	RValue setargs[]{ RValue{"__libmodshovel_gc_ds_map_index_please_do_not_destroy__"}, dsm };
+	// global.mapnamehere = dsm;
+	F_VariableGlobalSet(dsm, curSelf, curOther, 2, setargs);
+
+	double dsind{ -1.0 };
+	if (!dsm.tryToNumber(dsind) || dsind < 0.0) {
+		Global::throwError("Failed to make a GC DS map. :(");
+	}
+
+	pinDsMap = dsind;
 
 	lua_settable(pL, -3); // -1 - Runtime table, -2 - "Runtime", -3 - LMS global object.
 }
@@ -1723,12 +2042,13 @@ void LMS::Lua::initBuiltin(lua_State* pL) {
 }
 
 double LMS::Lua::getInstanceLen() {
+	double thelen{ 0.0 };
 	RValue tst{ 0.0 };
-	if (!GV_InstanceCount(curSelf, ARRAY_INDEX_NO_INDEX, &tst)) {
-		Global::throwError("What the fuck?? (in getInstanceLen)");
+	if (!GV_InstanceCount(curSelf, ARRAY_INDEX_NO_INDEX, &tst) || !tst.tryToNumber(thelen)) {
+		Global::throwError("Unable to obtain builtin variable instance_count.");
 	}
 
-	return static_cast<double>(tst.val);
+	return thelen;
 };
 
 bool LMS::Lua::directWith(lua_State* pL, RValue& newself, double ind) {
@@ -1898,6 +2218,9 @@ void LMS::Lua::initApi(lua_State* pL) {
 	lua_pushstring(pL, "fileWatch");
 	lua_pushcfunction(pL, &apiFileWatch);
 	lua_settable(pL, -3);
+	lua_pushstring(pL, "setFileWatchFunction");
+	lua_pushcfunction(pL, &apiSetFileWatchFunction);
+	lua_settable(pL, -3);
 	lua_pushstring(pL, "toInstance");
 	lua_pushcfunction(pL, &apiToInstance);
 	lua_settable(pL, -3);
@@ -1936,6 +2259,11 @@ void LMS::Lua::initGarbage(lua_State* pL) {
 	* This is a table used for storing functions, methods and stuff.
 	* It should never be touched in any way by Lua.
 	*/
+
+	/* for watcher */
+	lua_pushstring(pL, "Watcher");
+	lua_newtable(pL);
+	lua_settable(pL, -3);
 
 	lua_settable(pL, -3); // -1 - garbage table, -2 = "Garbage", -3 - LMS global object.
 }

@@ -41,6 +41,17 @@ namespace LMS {
 		static CInstance* curSelf;
 		static CInstance* curOther;
 
+		static std::unordered_map<std::uintptr_t, OVERLAPPED*> watcherMap;
+
+		static VOID WINAPI ovCompletionRoutine(
+			_In_    DWORD dwErrorCode,
+			_In_    DWORD dwNumberOfBytesTransfered,
+			_Inout_ LPOVERLAPPED lpOverlapped);
+
+		static double pinDsMap;
+		static void pinYYObjectBase(YYObjectBase* pObj);
+		static void unpinYYObjectBase(YYObjectBase* pObj);
+
 		static void arraySetOwner();
 		static double getInstanceLen();
 		static bool directWith(lua_State* pL, RValue& newself, double ind);
@@ -79,6 +90,7 @@ namespace LMS {
 		static int mtArrayNext(lua_State* pL);
 		static int mtArrayPairs(lua_State* pL);
 		static int mtArrayIpairs(lua_State* pL);
+		static int mtArrayEq(lua_State* pL);
 
 		/* YYObjectBase or CInstance */
 		static int mtStructIndex(lua_State* pL);
@@ -86,6 +98,7 @@ namespace LMS {
 		static int mtStructGc(lua_State* pL);
 		static int mtStructTostring(lua_State* pL);
 		static int mtStructLen(lua_State* pL);
+		static int mtStructEq(lua_State* pL);
 
 		/* LMS.Builtins */
 		static int mtBuiltinIndex(lua_State* pL);
@@ -98,11 +111,13 @@ namespace LMS {
 		static int mtRBuiltinNext(lua_State* pL);
 		static int mtRBuiltinPairs(lua_State* pL);
 		static int mtRBuiltinIpairs(lua_State* pL);
+		static int mtRBuiltinEq(lua_State* pL);
 
 		/* One-way method wrapper */
 		static int mtOneWayMethodCall(lua_State* pL);
 		static int mtOneWayMethodGc(lua_State* pL);
 		static int mtOneWayMethodTostring(lua_State* pL);
+		static int mtOneWayMethodEq(lua_State* pL);
 
 		/* API */
 		static int apiHookEvent(lua_State* pL);
@@ -113,6 +128,7 @@ namespace LMS {
 		static int apiSignalScriptAction(lua_State* pL);
 		static int apiSetHookFunction(lua_State* pL);
 		static int apiHookScript(lua_State* pL);
+		static int apiSetFileWatchFunction(lua_State* pL);
 		static int apiFileWatch(lua_State* pL);
 
 		static RValue luaToRValue(lua_State* pL, int index);

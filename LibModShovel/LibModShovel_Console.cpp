@@ -2,9 +2,6 @@
 #include "LibModShovel.h"
 #include "LibModShovel_Console.h"
 
-#include <cstdio>
-#include <iostream>
-
 /*
 * LibModShovel by nkrapivindev
 * Class: LMS::Console
@@ -18,19 +15,22 @@ HANDLE LMS::Console::prevConErr{};
 HANDLE LMS::Console::conIn{};
 HANDLE LMS::Console::conOut{};
 
+FILE* LMS::Console::oldStdout{};
+FILE* LMS::Console::oldStdin{};
+FILE* LMS::Console::oldStderr{};
+
 bool LMS::Console::Init() {
 	// check:
-	if (conOut) return Global::throwError("Console has already been initialized.");
+	if (conOut) return true;
 	// variables:
 	DWORD dwInmode{ 0 };
 	DWORD dwOutmode{ 0 };
-	FILE* f{ nullptr };
 	// allocation:
 	if (!AllocConsole()) return false;
 	// reopen printf stuff
-	if (_wfreopen_s(&f, L"CONIN$", L"r", stdin)) return false;
-	if (_wfreopen_s(&f, L"CONOUT$", L"w", stdout)) return false;
-	if (_wfreopen_s(&f, L"CONOUT$", L"w", stderr)) return false;
+	if (_wfreopen_s(&oldStdin, L"CONIN$", L"r", stdin)) return false;
+	if (_wfreopen_s(&oldStdout, L"CONOUT$", L"w", stdout)) return false;
+	if (_wfreopen_s(&oldStderr, L"CONOUT$", L"w", stderr)) return false;
 	// reopen winapi stuff
 	conOut = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (!conOut || conOut == INVALID_HANDLE_VALUE) return false;

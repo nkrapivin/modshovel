@@ -1,6 +1,9 @@
 #pragma once
 #include "pch.h"
 
+#include <cstdio>
+#include <iostream>
+
 /*
 *  LibModShovel by nkrapivindev
 *  Console class header file
@@ -15,6 +18,10 @@ namespace LMS {
 
 		static HANDLE conIn;
 		static HANDLE conOut;
+
+		static FILE* oldStdout;
+		static FILE* oldStdin;
+		static FILE* oldStderr;
 
 	public:
 		static bool Init();
