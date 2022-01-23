@@ -42,6 +42,7 @@ TRoutine F_DsMapCreate{};
 TRoutine F_DsMapReplace{};
 TRoutine F_DsMapDelete{};
 TRoutine F_DsMapFindValue{};
+TRoutine F_DsExists{};
 
 TGetVarRoutine GV_EventType{};
 TGetVarRoutine GV_EventSubtype{};
@@ -49,6 +50,8 @@ TGetVarRoutine GV_EventObject{};
 TGetVarRoutine GV_InstanceCount{};
 TGetVarRoutine GV_InstanceId{};
 TGetVarRoutine GV_ProgramDirectory{};
+
+std::mutex FreeMtMutex{};
 
 struct RBuiltinData {
 	CInstance* owner;
@@ -64,6 +67,14 @@ double LMS::Lua::pinDsMap{ -1.0 };
 void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
 	if (!pObj) {
 		Global::throwError("YYObjectBase pointer is null. Cannot pin a NULL object.");
+	}
+
+	RValue exists{ 0.0 };
+	RValue exargs[]{ RValue{pinDsMap}, RValue{1.0/*ds_type_map*/} };
+	F_DsExists(exists, curSelf, curOther, 2, exargs);
+	if (exists.val == 0.0) {
+		/* ds map destroyed? */
+		return;
 	}
 
 	RValue refcount{ nullptr };
@@ -92,6 +103,14 @@ void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
 void LMS::Lua::unpinYYObjectBase(YYObjectBase* pObj) {
 	if (!pObj) {
 		Global::throwError("YYObjectBase pointer is null. Cannot unpin a NULL object.");
+	}
+
+	RValue exists{ 0.0 };
+	RValue exargs[]{ RValue{pinDsMap}, RValue{1.0/*ds_type_map*/} };
+	F_DsExists(exists, curSelf, curOther, 2, exargs);
+	if (exists.val == 0.0) {
+		/* ds map destroyed? */
+		return;
 	}
 
 	RValue refcount{ nullptr };
@@ -566,21 +585,44 @@ RValue& LMS::Lua::MethodCallRoutine(CInstance* selfinst, CInstance* otherinst, R
 }
 
 void LMS::Lua::FreeMethodAt(long long index) {
+	/* since this should come from a PreFree call, and GC is multithreaded, it's better to guard _somehow_ */
+	std::unique_lock<std::mutex> lock{ FreeMtMutex };
+	/* cache the funchash and free it */
 	auto luakey{ ScapegoatMethods[index].k };
-
+	ScapegoatMethods[index].k = 0;
+	
 	lua_getglobal(luactx, "LMS");
 	lua_pushstring(luactx, "Garbage");
 	lua_gettable(luactx, -2);
+
 	lua_pushstring(luactx, "Methods");
-	lua_gettable(luactx, -2);
-	lua_pushinteger(luactx, luakey);
-	lua_pushnil(luactx);
-	lua_settable(luactx, -3);
-	lua_pop(luactx, 1); // methods
+	lua_newtable(luactx);
+	auto newtab{ lua_gettop(luactx) };
+
+	lua_pushstring(luactx, "Methods");
+	lua_gettable(luactx, -4);
+	
+	/* the 'Methods' table is at the stacktop */
+	auto mymttab{ lua_gettop(luactx) };
+
+	/*
+	* since Lua doesn't let you to fully delete an item from a Table,
+	* I end up recreating the table without the needed element ;-;
+	*/
+	for (lua_pushnil(luactx); lua_next(luactx, mymttab) != 0; lua_pop(luactx, 1)) {
+		if (lua_tointeger(luactx, -2) != luakey) {
+			lua_pushvalue(luactx, -2);
+			lua_pushvalue(luactx, -2); // not a typo, after previous pushvalue key is now at -2.
+			lua_settable(luactx, newtab);
+		}
+	}
+	lua_pop(luactx, 1); // methods table
+
+	lua_settable(luactx, -3); // apply new table to LMS.Methods.
+
+	/* stack balance */
 	lua_pop(luactx, 1); // garbage
 	lua_pop(luactx, 1); // lms
-
-	ScapegoatMethods[index].k = 0;
 }
 
 void LMS::Lua::doEventHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename) {
@@ -1166,8 +1208,8 @@ int LMS::Lua::mtRBuiltinEq(lua_State* pL) {
 	return 1;
 }
 
-int LMS::Lua::mtOneWayMethodCall(lua_State* pL) {
-	auto mtptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_OWMethod__")) };
+int LMS::Lua::mtStructCall(lua_State* pL) {
+	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
 	RValue* args{ nullptr };
 	RValue** yyc_args{ nullptr };
@@ -1182,43 +1224,18 @@ int LMS::Lua::mtOneWayMethodCall(lua_State* pL) {
 	}
 
 	RValue res{ nullptr };
-	res = YYGML_CallMethod(curSelf, curOther, res, argc, **mtptr, yyc_args);
+	res = YYGML_CallMethod(curSelf, curOther, res, argc, **rptr, yyc_args);
+
+	/* an argument might be inside those args so we convert first, then free YYC args. */
+	rvalueToLua(pL, res);
 
 	if (argc > 0) {
 		delete[] yyc_args;
+		yyc_args = nullptr;
 		delete[] args;
+		args = nullptr;
 	}
 
-	rvalueToLua(pL, res);
-	return 1;
-}
-
-int LMS::Lua::mtOneWayMethodGc(lua_State* pL) {
-	auto mtptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_OWMethod__")) };
-
-	unpinYYObjectBase((*mtptr)->pObj);
-	delete (*mtptr);
-
-	//std::cout << "Freeing method wrapper at " << reinterpret_cast<void*>(*mtptr) << std::endl;
-	return 0;
-}
-
-int LMS::Lua::mtOneWayMethodTostring(lua_State* pL) {
-	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_OWMethod__")) };
-
-	RValue res{ nullptr };
-	RValue args[]{ **rptr };
-	F_String(res, curSelf, curOther, 1, args);
-
-	lua_pushfstring(pL, "owmethod:%s", res.pString->get());
-	return 1;
-}
-
-int LMS::Lua::mtOneWayMethodEq(lua_State* pL) {
-	auto rptr1{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_OWMethod__")) };
-	auto rptr2{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 2, "__LMS_metatable_RValue_OWMethod__")) };
-
-	lua_pushboolean(pL, ((*rptr1)->pObj) == ((*rptr2)->pObj));
 	return 1;
 }
 
@@ -1631,6 +1648,35 @@ int LMS::Lua::apiSetConsoleShow(lua_State* pL) {
 	return 1;
 }
 
+int LMS::Lua::apiSetConsoleTitle(lua_State* pL) {
+	// allow numbers as args too.
+	auto newtitle{ lua_tostring(pL, 1) };
+
+	if (newtitle) {
+		std::wstring widenewtitle{ stringToWstring(newtitle) };
+		lua_pushboolean(pL, SetConsoleTitleW(widenewtitle.c_str()));
+		return 1;
+	}
+	else {
+		return luaL_argerror(pL, 1, "Argument cannot be converted to a string.");
+	}
+}
+
+int LMS::Lua::apiClearConsole(lua_State* pL) {
+	HANDLE hConsole{ GetStdHandle(STD_OUTPUT_HANDLE) };
+	DWORD wrote{ 0 };
+	COORD zerozero{ 0,0 };
+	CONSOLE_SCREEN_BUFFER_INFO csbi{};
+
+	GetConsoleScreenBufferInfo(hConsole, &csbi);
+	auto siz{ csbi.dwSize.X * csbi.dwSize.Y };
+
+	FillConsoleOutputCharacterW(hConsole, ' ', siz, zerozero, &wrote);
+	FillConsoleOutputAttribute(hConsole, csbi.wAttributes, siz, zerozero, &wrote);
+	SetConsoleCursorPosition(hConsole, zerozero);
+	return 0;
+}
+
 RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 	arraySetOwner();
 	switch (lua_type(pL, index)) {
@@ -1669,18 +1715,14 @@ RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 			/* check if RV array: */
 			auto rptr{ reinterpret_cast<RValue**>(luaL_testudata(pL, index, "__LMS_metatable_RValue_Array__")) };
 			auto sptr{ reinterpret_cast<RValue**>(luaL_testudata(pL, index, "__LMS_metatable_RValue_Struct__")) };
-			auto owmtptr{ reinterpret_cast<RValue**>(luaL_testudata(pL, index, "__LMS_metatable_RValue_OWMethod__")) };
 			if (rptr) {
 				rv = **rptr;
 			}
 			else if (sptr) {
 				rv = **sptr;
 			}
-			else if (owmtptr) {
-				rv = **owmtptr;
-			}
 			else {
-				Global::throwError("Not implemented userdata conversion!");
+				Global::throwError("Not implemented userdata conversion! Please report this as a bug.");
 			}
 
 			return rv;
@@ -1800,20 +1842,8 @@ void LMS::Lua::rvalueToLua(lua_State* pL, RValue& rv) {
 		}
 
 		case VALUE_OBJECT: {
-			/* check the kind of YYObjectBase ... */
-			YYObjectBase* obj{ rv.pObj };
-			/* methods require a special funny: */
-			if (obj->m_kind == YYObjectBaseKind::KIND_SCRIPTREF) {
-				auto rvptr{ reinterpret_cast<RValue**>(lua_newuserdatauv(pL, sizeof(RValue*), 0)) };
-				*rvptr = new RValue{ rv };
-				pinYYObjectBase((*rvptr)->pObj);
-				luaL_setmetatable(pL, "__LMS_metatable_RValue_OWMethod__");
-			}
-			else {
-				/* otherwise push a generic struct wrapper: */
-				pushYYObjectBase(luactx, rv);
-			}
-
+			/* both structs and methods are now handled by a single userdata... */
+			pushYYObjectBase(luactx, rv);
 			break;
 		}
 	}
@@ -2009,18 +2039,7 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 	luaL_setfuncs(pL, rbuiltinmt, 0);
 	lua_pop(pL, 1);
 
-	/* One way method call wrapper */
-	const luaL_Reg owmethod[]{
-		{"__call", &mtOneWayMethodCall},
-		{"__gc", &mtOneWayMethodGc},
-		{"__tostring", &mtOneWayMethodTostring},
-		{"__eq", &mtOneWayMethodEq},
-		{nullptr, nullptr}
-	};
-
-	luaL_newmetatable(pL, "__LMS_metatable_RValue_OWMethod__");
-	luaL_setfuncs(pL, owmethod, 0);
-	lua_pop(pL, 1);
+	/* One way method call wrapper is now obsolete, use the Struct instead... */
 }
 
 void LMS::Lua::initRuntime(lua_State* pL) {
@@ -2136,6 +2155,9 @@ void LMS::Lua::initRuntime(lua_State* pL) {
 		}
 		else if (strcmp(realname, "ds_map_find_value") == 0) {
 			F_DsMapFindValue = func->f_routine;
+		}
+		else if (strcmp(realname, "ds_exists") == 0) {
+			F_DsExists = func->f_routine;
 		}
 	}
 	/* initRuntime end */
@@ -2272,6 +2294,7 @@ bool LMS::Lua::directWith(lua_State* pL, RValue& newself, double ind) {
 }
 
 RValue LMS::Lua::luaToMethod(lua_State* pL, int funcind) {
+	std::unique_lock<std::mutex> lock{ FreeMtMutex };
 	RValue obj{ nullptr };
 
 	auto funchash{ static_cast<lua_Integer>(reinterpret_cast<std::intptr_t>(lua_topointer(pL, funcind))) };
@@ -2287,8 +2310,8 @@ RValue LMS::Lua::luaToMethod(lua_State* pL, int funcind) {
 		}
 
 		if (ScapegoatMethods[i].k == funchash || ScapegoatMethods[i].k == 0) {
-			ScapegoatMethods[myind].k = funchash;
 			myind = i;
+			ScapegoatMethods[myind].k = funchash;
 			break;
 		}
 	}
@@ -2306,7 +2329,14 @@ RValue LMS::Lua::luaToMethod(lua_State* pL, int funcind) {
 	lua_pop(pL, 1); // lms
 
 	YYSetScriptRef(&obj, ScapegoatMethods[myind].f, reinterpret_cast<YYObjectBase*>(curSelf));
-	//reinterpret_cast<CScriptRef*>(obj.pObj)->m_tag = "___anon___lms_method";
+	std::string mytag{ "___anon___lms_method_" + std::to_string(myind) };
+	char* mystr{ nullptr };
+	MMSetLength(reinterpret_cast<void**>(&mystr), mytag.size() + 1);
+	std::memset(mystr, 0, mytag.size() + 1);
+	std::memcpy(mystr, mytag.data(), mytag.size());
+	reinterpret_cast<CScriptRef*>(obj.pObj)->m_tag = mystr;
+	CScriptRefVTable::Obtain(reinterpret_cast<CScriptRef*>(obj.pObj));
+	CScriptRefVTable::Replace(reinterpret_cast<CScriptRef*>(obj.pObj));
 	return obj;
 }
 
@@ -2350,7 +2380,7 @@ int LMS::Lua::apiWith(lua_State* pL) {
 			F_JSGetInstance(key, curSelf, curOther, 1, args);
 		}
 		else if (rvnum < -5.0) {
-			Global::throwError("Invalid number passed to apiWith(): " + std::to_string(rvnum));
+			Global::throwError("Invalid instance id/number passed to apiWith(): " + std::to_string(rvnum));
 		}
 	}
 
@@ -2438,6 +2468,12 @@ void LMS::Lua::initApi(lua_State* pL) {
 	lua_settable(pL, -3);
 	lua_pushstring(pL, "setConsoleShow");
 	lua_pushcfunction(pL, &apiSetConsoleShow);
+	lua_settable(pL, -3);
+	lua_pushstring(pL, "setConsoleTitle");
+	lua_pushcfunction(pL, &apiSetConsoleTitle);
+	lua_settable(pL, -3);
+	lua_pushstring(pL, "clearConsole");
+	lua_pushcfunction(pL, &apiClearConsole);
 	lua_settable(pL, -3);
 	lua_pushstring(pL, "fSkipNextHook");
 	lua_pushinteger(pL, HookBitFlags::SKIP_NEXT);

@@ -41,8 +41,6 @@ namespace LMS {
 		static CInstance* curSelf;
 		static CInstance* curOther;
 
-		static std::unordered_map<std::uintptr_t, OVERLAPPED*> watcherMap;
-
 		static VOID WINAPI ovCompletionRoutine(
 			_In_    DWORD dwErrorCode,
 			_In_    DWORD dwNumberOfBytesTransfered,
@@ -77,8 +75,6 @@ namespace LMS {
 		static std::unordered_map<unsigned long long, PFUNC_YYGML> eventOriginalsMap;
 		static std::unordered_map<std::string, std::pair<RVariableRoutine*, GMBuiltinVariable*>> builtinsMap;
 
-		//static int hookRoutineMethod(lua_State* pL);
-
 		static int scriptCall(lua_State* pL);
 
 		/* metamethods */
@@ -101,6 +97,7 @@ namespace LMS {
 		static int mtStructTostring(lua_State* pL);
 		static int mtStructLen(lua_State* pL);
 		static int mtStructEq(lua_State* pL);
+		static int mtStructCall(lua_State* pL);
 
 		/* LMS.Builtins */
 		static int mtBuiltinIndex(lua_State* pL);
@@ -115,12 +112,6 @@ namespace LMS {
 		static int mtRBuiltinIpairs(lua_State* pL);
 		static int mtRBuiltinEq(lua_State* pL);
 
-		/* One-way method wrapper */
-		static int mtOneWayMethodCall(lua_State* pL);
-		static int mtOneWayMethodGc(lua_State* pL);
-		static int mtOneWayMethodTostring(lua_State* pL);
-		static int mtOneWayMethodEq(lua_State* pL);
-
 		/* API */
 		static int apiHookEvent(lua_State* pL);
 		static int apiDebugEnterRepl(lua_State* pL);
@@ -133,6 +124,8 @@ namespace LMS {
 		static int apiSetFileWatchFunction(lua_State* pL);
 		static int apiFileWatch(lua_State* pL);
 		static int apiSetConsoleShow(lua_State* pL);
+		static int apiSetConsoleTitle(lua_State* pL);
+		static int apiClearConsole(lua_State* pL);
 
 		static RValue luaToRValue(lua_State* pL, int index);
 		static void rvalueToLua(lua_State* pL, RValue& rv);

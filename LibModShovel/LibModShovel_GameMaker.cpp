@@ -391,3 +391,77 @@ CCode::CCode(PFUNC_YYGMLScript_Internal pfn) {
 	m_pNext = nullptr;
 	i_pFunc = new YYGMLFuncs{ pfn };
 }
+
+CScriptRefVTable::CScriptRefVTable(
+	dtor_t _Destructor,
+	getyyvarref_t _InternalGetYYVarRef,
+	getyyvarref_t _InternalGetYYVarRefL,
+	mark4gc_t _Mark4GC,
+	mark4gc_t _MarkThisOnly4GC,
+	mark4gc_t _MarkOnlyChildren4GC,
+	free_t _Free,
+	threadfree_t _ThreadFree,
+	prefree_t _PreFree
+) : Destructor{_Destructor},
+	InternalGetYYVarRef{_InternalGetYYVarRef},
+	InternalGetYYVarRefL{_InternalGetYYVarRefL},
+	Mark4GC{_Mark4GC},
+	MarkThisOnly4GC{_MarkThisOnly4GC},
+	MarkOnlyChildren4GC{_MarkOnlyChildren4GC},
+	Free{_Free},
+	ThreadFree{_ThreadFree},
+	PreFree{_PreFree} {
+	/* nothing here... */
+}
+
+CScriptRefVTable CScriptRefVTable::Originals{
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr
+};
+
+CScriptRefVTable CScriptRefVTable::HookTable{
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr
+};
+
+void CScriptRef::HookPreFree() {
+	if (m_tag && strstr(m_tag, "___anon___lms_method_")) {
+		auto myind{ std::atoll(&m_tag[21/*prefix length*/])};
+		YYFree(reinterpret_cast<void*>(const_cast<char*>(m_tag)));
+		m_tag = nullptr;
+		LMS::Lua::FreeMethodAt(myind);
+	}
+
+	CScriptRefVTable::Originals.PreFree(this);
+}
+
+void CScriptRefVTable::Obtain(CScriptRef* obj) {
+	if (Originals.Destructor) return;
+	/* originals only */
+	Originals = (**reinterpret_cast<PCScriptRefVTable*>(obj));
+	/* may contain replacements */
+	HookTable = Originals;
+	auto fuckmsvc{ &CScriptRef::HookPreFree }; /* doesn't let to recast a member function to anything, let's use a variable. */
+	HookTable.PreFree = *reinterpret_cast<dtor_t*>(&fuckmsvc);
+}
+
+void CScriptRefVTable::Replace(CScriptRef* obj) {
+	/* le fun */
+	(*reinterpret_cast<PCScriptRefVTable*>(obj)) = &HookTable;
+}
+
+

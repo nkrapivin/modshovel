@@ -30,6 +30,11 @@ class cInstancePathAndTimeline;
 class CScript;
 class CScriptRef;
 class CCode;
+template<typename Tkey, typename Tvalue, int TinitialMask>
+class CHashMap;
+
+static_assert((sizeof uint) == 4, "Wrong unsigned int size.");
+static_assert((sizeof int64) == 8, "Wrong long long size.");
 
 struct YYVAR {
 	const char* pName;
@@ -262,7 +267,7 @@ struct GCContext {
 
 class CInstanceBase {
 public:
-	RValue* yyvars;
+	RValue* yyvars; /* always nullptr */
 	virtual ~CInstanceBase() = 0;
 
 	RValue& GetYYVarRef(int index);
@@ -276,7 +281,7 @@ class YYObjectBase : CInstanceBase {
 	virtual bool MarkThisOnly4GC(uint* _pM, int _numObjects) = 0;
 	virtual bool MarkOnlyChildren4GC(uint* _pM, int _numObjects) = 0;
 	virtual void Free(bool preserve_map) = 0;
-	virtual void ThreadFree(YYObjectBase* _pO, bool preserve_map, GCContext* _pGCContext) = 0;
+	virtual void ThreadFree(bool preserve_map, GCContext* _pGCContext) = 0;
 	virtual void PreFree() = 0;
 
 public:
@@ -289,7 +294,7 @@ public:
 	void (*m_getOwnProperty)(YYObjectBase* obj, RValue* val, const char* name);
 	void (*m_deleteProperty)(YYObjectBase* obj, RValue* val, const char* name, bool dothrow);
 	EJSRetValBool(*m_defineOwnProperty)(YYObjectBase* obj, const char* name, RValue* val, bool dothrow);
-	void* m_yyvarsMap;
+	CHashMap<int, RValue*, 3>* m_yyvarsMap;
 	CWeakRef** m_pWeakRefs;
 	uint m_numWeakRefs;
 	uint m_nvars;
@@ -397,6 +402,8 @@ public:
 	EHasInstanceRetVal(*m_hasInstance)(YYObjectBase* obj, RValue* val);
 	JSConstructorFunc m_construct;
 	const char* m_tag;
+
+	void HookPreFree();
 };
 
 enum class eGML_TYPE {
@@ -699,3 +706,40 @@ extern YYObjectBase_Alloc_t YYObjectBase_Alloc;
 
 using YYSetScriptRef_t = void(*)(RValue* _pVal, PFUNC_YYGMLScript_Internal _pScript, YYObjectBase* _pSelf);
 extern YYSetScriptRef_t YYSetScriptRef;
+
+struct CScriptRefVTable {
+	using dtor_t = void(__thiscall*)(CScriptRef* self);
+	using getyyvarref_t = RValue&(__thiscall*)(CScriptRef* self, int index);
+	using mark4gc_t = bool(__thiscall*)(CScriptRef* self, uint* _pM, int _numObjects);
+	using free_t = void(__thiscall*)(CScriptRef* self, bool preserve_map);
+	using threadfree_t = void(__thiscall*)(CScriptRef* self, bool preserve_map, GCContext* _pGCContext);
+	using prefree_t = void(__thiscall*)(CScriptRef* self);
+	dtor_t Destructor;
+	getyyvarref_t InternalGetYYVarRef;
+	getyyvarref_t InternalGetYYVarRefL;
+	mark4gc_t Mark4GC;
+	mark4gc_t MarkThisOnly4GC;
+	mark4gc_t MarkOnlyChildren4GC;
+	free_t Free;
+	threadfree_t ThreadFree;
+	prefree_t PreFree;
+
+	CScriptRefVTable(
+		dtor_t _Destructor,
+		getyyvarref_t _InternalGetYYVarRef,
+		getyyvarref_t _InternalGetYYVarRefL,
+		mark4gc_t _Mark4GC,
+		mark4gc_t _MarkThisOnly4GC,
+		mark4gc_t _MarkOnlyChildren4GC,
+		free_t _Free,
+		threadfree_t _ThreadFree,
+		prefree_t _PreFree
+	);
+
+	static CScriptRefVTable Originals;
+	static CScriptRefVTable HookTable;
+	static void Obtain(CScriptRef* obj);
+	static void Replace(CScriptRef* obj);
+};
+
+using PCScriptRefVTable = CScriptRefVTable*;
