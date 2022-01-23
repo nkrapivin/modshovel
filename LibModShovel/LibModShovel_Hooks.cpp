@@ -340,6 +340,50 @@ bool LMS::Hooks::ApplyInitHooks() {
 		})
 	};
 
+	LPBYTE pf_YYSetScriptRef{ fastCodeSearch({
+			// push ebp
+			0x55,
+			// mov ebp,esp
+			0x8b, 0xec,
+			// push -0x1
+			0x6a, 0xff,
+			// push [addr]
+			0x68, bany, bany, bany, bany,
+			// mov eax,fs:[0x0]
+			0x64, 0xa1, 0x00, 0x00, 0x00, 0x00,
+			// push eax
+			0x50,
+			// push ebx
+			0x53,
+			// push esi
+			0x56,
+			// push edi
+			0x57,
+			// mov eax,[addr]
+			0xa1, bany, bany, bany, bany,
+			// xor eax,ebp
+			0x33, 0xc5,
+			// push eax
+			0x50,
+			// lea eax=>local_10,[ebp + -0xc]
+			0x8d, 0x45, 0xf4,
+			// mov fs:[0x0],eax
+			0x64, 0xa3, 0x00, 0x00, 0x00, 0x00,
+			// mov esi, dword ptr [ebp + param_1]
+			0x8b, 0x75, 0x08,
+			// push 0xa0
+			0x68, 0xa0, 0x00, 0x00, 0x00,
+			// mov dword ptr [esi + 0xc],0x6
+			0xc7, 0x46, 0x0c, 0x06, 0x00, 0x00, 0x00,
+			// call func
+			0xe8, bany, bany, bany, bany,
+			// add esp,0x4
+			0x83, 0xc4, 0x04
+			/* ... */
+		})
+	};
+
+	YYSetScriptRef = reinterpret_cast<YYSetScriptRef_t>(pf_YYSetScriptRef);
 	JS_GenericObjectConstructor = reinterpret_cast<TRoutine>(pf_JS_GenericObjectConstructor);
 	YYObjectBase_Alloc = reinterpret_cast<YYObjectBase_Alloc_t>(pf_YYObjectBase_Alloc);
 

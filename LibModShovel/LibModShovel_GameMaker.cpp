@@ -1,5 +1,7 @@
 #include "LibModShovel_GameMaker.h"
 #include "LibModShovel.h"
+#include "LibModShovel_Lua.h"
+#include "LibModShovel_MethodAutogen.h"
 
 /*
 * LibModShovel by nkrapivindev
@@ -39,6 +41,7 @@ CHash<CObjectGM>** g_ppObjectHash{};
 Create_Object_Lists_t Create_Object_Lists{};
 Insert_Event_t Insert_Event{};
 YYGML_CallMethod_t YYGML_CallMethod{};
+YYSetScriptRef_t YYSetScriptRef{};
 
 Create_Async_Event_t Create_Async_Event{};
 
@@ -388,5 +391,3 @@ CCode::CCode(PFUNC_YYGMLScript_Internal pfn) {
 	m_pNext = nullptr;
 	i_pFunc = new YYGMLFuncs{ pfn };
 }
-
-

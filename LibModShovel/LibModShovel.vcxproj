@@ -195,6 +195,7 @@
     <ClInclude Include="LibModShovel_GMBuiltins.h" />
     <ClInclude Include="LibModShovel_GMConstants.h" />
     <ClInclude Include="LibModShovel_Hooks.h" />
+    <ClInclude Include="LibModShovel_MethodAutogen.h" />
     <ClInclude Include="lua-5.4.3\src\lapi.h" />
     <ClInclude Include="lua-5.4.3\src\lauxlib.h" />
     <ClInclude Include="lua-5.4.3\src\lcode.h" />
@@ -245,6 +246,7 @@
     <ClCompile Include="LibModShovel_GMConstants.cpp" />
     <ClCompile Include="LibModShovel_Hooks.cpp" />
     <ClCompile Include="LibModShovel_Lua.cpp" />
+    <ClCompile Include="LibModShovel_MethodAutogen.cpp" />
     <ClCompile Include="lua-5.4.3\src\lapi.c" />
     <ClCompile Include="lua-5.4.3\src\lauxlib.c" />
     <ClCompile Include="lua-5.4.3\src\lbaselib.c" />

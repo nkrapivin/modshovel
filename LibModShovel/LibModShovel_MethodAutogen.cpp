@@ -1,7 +1,7 @@
-#define GMAutogen_Implementation 1
-#include "LibModShovel_GMAutogen.h"
+#define MethodAutogen_Implementation 1
+#include "LibModShovel_MethodAutogen.h"
 
-LMS::ScapegoatPair LMS::ScapegoatScripts[]{
+LMS::MethodScapegoat LMS::ScapegoatMethods[]{
 fdef(0),
 fdef(1),
 fdef(2),

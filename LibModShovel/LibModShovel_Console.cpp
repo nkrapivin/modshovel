@@ -20,8 +20,10 @@ FILE* LMS::Console::oldStdin{};
 FILE* LMS::Console::oldStderr{};
 
 bool LMS::Console::Init() {
-	// check:
-	if (conOut) return true;
+	// already initialized the console? then just return true.
+	if (conOut) {
+		return true;
+	}
 	// variables:
 	DWORD dwInmode{ 0 };
 	DWORD dwOutmode{ 0 };
@@ -48,9 +50,9 @@ bool LMS::Console::Init() {
 	if (!GetConsoleMode(conIn, &dwInmode)) return false;
 	// enable vt100 stuff for lua
 	if (!SetConsoleMode(conOut, dwOutmode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) return false;
-	if (!SetConsoleMode(conIn, dwInmode | ENABLE_VIRTUAL_TERMINAL_INPUT)) return false;
+	// if (!SetConsoleMode(conIn, dwInmode | ENABLE_VIRTUAL_TERMINAL_INPUT)) return false; // breaks backspaces...
 	// set console window title
-	if (!SetConsoleTitleW(L"LibModShovel: Debug Console Window, all Lua print()s will appear here.")) return false;
+	if (!SetConsoleTitleW(L"LibModShovel (build " TEXT(__TIMESTAMP__) L"): Debug/Lua print() Console Window")) return false;
 	// reset narrow streams
 	std::cout.clear();
 	std::cerr.clear();
@@ -60,30 +62,27 @@ bool LMS::Console::Init() {
 	std::wcerr.clear();
 	std::wcin.clear();
 	// print something as a test.
-	std::cout << "LibModShovel by nkrapivindev" << std::endl;
-	std::cout << "Version: " << __TIMESTAMP__ << std::endl;
-	std::cout << "Please don't cheat in speedruns/leaderboards with this tool :(" << std::endl;
-	std::cout << std::endl;
+	std::cout
+		<< "LibModShovel (build " << __TIMESTAMP__ << ") by nkrapivindev"   << std::endl
+		<< "Please don't cheat in speedruns/leaderboards with this tool :(" << std::endl
+		<< std::endl;
 	//
 	return true;
 }
 
 bool LMS::Console::Quit() {
-	// do nothing if we haven't initialized the console.
+	// already initialized the console? return false.
 	if (!conOut) {
 		return false;
 	}
 	//
 	std::cout << "Destroying the LibModShovel console..." << std::endl;
 	// 
-	SetStdHandle(STD_INPUT_HANDLE, prevConIn);
-	//CloseHandle(prevConIn);
+	SetStdHandleEx(STD_INPUT_HANDLE, prevConIn, nullptr);
 	prevConIn = nullptr;
-	SetStdHandle(STD_OUTPUT_HANDLE, prevConOut);
-	//CloseHandle(prevConOut);
+	SetStdHandleEx(STD_OUTPUT_HANDLE, prevConOut, nullptr);
 	prevConOut = nullptr;
-	SetStdHandle(STD_ERROR_HANDLE, prevConErr);
-	//CloseHandle(prevConErr);
+	SetStdHandleEx(STD_ERROR_HANDLE, prevConErr, nullptr);
 	prevConErr = nullptr;
 	//
 	CloseHandle(conIn);
@@ -91,9 +90,5 @@ bool LMS::Console::Quit() {
 	CloseHandle(conOut);
 	conOut = nullptr;
 	//
-	fclose(stdout);
-	fclose(stdin);
-	fclose(stderr);
-	// we're done here
 	return FreeConsole();
 }

@@ -1,13 +1,15 @@
 #include "pch.h"
 #include "LibModShovel_Lua.h"
 #include <iostream>
+#include "LibModShovel_Console.h"
 #include "LibModShovel_GMAutogen.h"
+#include "LibModShovel_MethodAutogen.h"
 
 /*
 * LibModShovel by nkrapivindev
 * Class: LMS::Lua
 * Purpose:: All-things-Lua!
-* TODO: refactor eventscript hook to not copy&paste the fuck code >:(
+* TODO: refactor code to be compatible with LuaJIT...?
 */
 
 /* ah yes, the lua context */
@@ -39,6 +41,7 @@ TRoutine F_VariableGlobalSet{};
 TRoutine F_DsMapCreate{};
 TRoutine F_DsMapReplace{};
 TRoutine F_DsMapDelete{};
+TRoutine F_DsMapFindValue{};
 
 TGetVarRoutine GV_EventType{};
 TGetVarRoutine GV_EventSubtype{};
@@ -57,21 +60,64 @@ std::unordered_map<unsigned long long, PFUNC_YYGML> LMS::Lua::eventOriginalsMap{
 std::unordered_map<std::string, std::pair<RVariableRoutine*, LMS::GMBuiltinVariable*>> LMS::Lua::builtinsMap{};
 double LMS::Lua::pinDsMap{ -1.0 };
 
-std::unordered_map<std::uintptr_t, OVERLAPPED*> LMS::Lua::watcherMap{};
-
 /* called by LMS when a new array or struct wrapper is created and returned to Lua */
 void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
-	RValue res{ nullptr };
-	/* pointers on 32bit are just reinterpret casted to Hash (typedef uint) */
+	if (!pObj) {
+		Global::throwError("YYObjectBase pointer is null. Cannot pin a NULL object.");
+	}
+
+	RValue refcount{ nullptr };
+	/* initialize refcount to 1. */
+	RValue refcountargs[]{ pinDsMap, RValue{reinterpret_cast<void*>(reinterpret_cast<LPBYTE>(pObj) + 1)}, RValue{1.0} };
 	RValue args[]{ pinDsMap, RValue{reinterpret_cast<void*>(pObj)}, RValue{pObj} };
-	F_DsMapReplace(res, curSelf, curOther, 3, args);
+	/* obtain refcount */
+	F_DsMapFindValue(refcount, curSelf, curOther, 2, refcountargs);
+
+	/* no value? */
+	if ((refcount.kind & MASK_KIND_RVALUE) == VALUE_UNDEFINED) {
+		// object:
+		F_DsMapReplace(refcount, curSelf, curOther, 3, args);
+		// refcount (key is mem address +1):
+		F_DsMapReplace(refcount, curSelf, curOther, 3, refcountargs);
+	}
+	else {
+		/* increment refcount: */
+		refcountargs[2] = ++(refcount.val);
+		/* update refcount: */
+		F_DsMapReplace(refcount, curSelf, curOther, 3, refcountargs);
+	}
 }
 
 /* only called by '__gc' metamethods in struct/array wrappers. */
 void LMS::Lua::unpinYYObjectBase(YYObjectBase* pObj) {
-	RValue res{ nullptr };
+	if (!pObj) {
+		Global::throwError("YYObjectBase pointer is null. Cannot unpin a NULL object.");
+	}
+
+	RValue refcount{ nullptr };
+	/* initialize refcount to 1. */
+	RValue refcountargs[]{ pinDsMap, RValue{reinterpret_cast<void*>(reinterpret_cast<LPBYTE>(pObj) + 1)}, RValue{1.0} };
 	RValue args[]{ pinDsMap, RValue{reinterpret_cast<void*>(pObj)} };
-	F_DsMapDelete(res, curSelf, curOther, 2, args);
+	/* obtain refcount */
+	F_DsMapFindValue(refcount, curSelf, curOther, 2, refcountargs);
+
+	if ((refcount.kind & MASK_KIND_RVALUE) == VALUE_UNDEFINED) {
+		Global::throwError("Trying to unpin a non-existing YYObjectBase.");
+	}
+	else {
+		/* decrement refcount and update: */
+		refcountargs[2] = --(refcount.val);
+		F_DsMapReplace(refcount, curSelf, curOther, 3, refcountargs);
+		/* do we need to free? */
+		if (refcount.val <= 0.0) {
+			F_DsMapDelete(refcount, curSelf, curOther, 2, args);
+			F_DsMapDelete(refcount, curSelf, curOther, 2, refcountargs);
+
+#ifdef _DEBUG
+			std::cout << "Freed pinned YYObjectBase: 0x" << args[1].ptr << std::endl;
+#endif
+		}
+	}
 }
 
 std::string LMS::Lua::getProgramDirectory() {
@@ -85,7 +131,7 @@ std::string LMS::Lua::getProgramDirectory() {
 std::wstring LMS::Lua::stringToWstring(const std::string& str) {
 	std::wstring ws{};
 
-	// ws is already empty.
+	// ws is already empty, don't bother.
 	if (str.size() == 0)
 		return ws;
 
@@ -170,8 +216,8 @@ void obtainKey(unsigned long long key, int& objId, int& evType, int evSubtype) {
 unsigned long long genKey(int objId, int evType, int evSubType) {
 	return
 		static_cast<unsigned long long>(objId)
-		| (static_cast<unsigned long long>(evType) << 32ull)
-		| (static_cast<unsigned long long>(evSubType) << 48ull);
+		| (static_cast<unsigned long long>(evType & 0xffff) << 32ull)
+		| (static_cast<unsigned long long>(evSubType & 0xffff) << 48ull);
 }
 
 void LMS::Lua::arraySetOwner() {
@@ -211,7 +257,6 @@ void LMS::Lua::pushYYObjectBase(lua_State* pL, YYObjectBase* thing) {
 	*yyptr = new RValue{ thing };
 	pinYYObjectBase((*yyptr)->pObj);
 	luaL_setmetatable(pL, "__LMS_metatable_RValue_Struct__");
-	
 }
 
 void LMS::Lua::pushYYObjectBase(lua_State* pL, const RValue& rv) {
@@ -249,7 +294,30 @@ int LMS::Lua::scriptCall(lua_State* pL) {
 	return 1;
 }
 
-LMS::HookBitFlags LMS::Lua::tmpFlags{};
+LMS::HookBitFlags LMS::Lua::tmpFlags{ LMS::HookBitFlags::SKIP_NONE };
+
+lua_Integer LMS::Lua::findRealArrayLength(lua_State* pL) {
+	auto table{ lua_gettop(pL) };
+	auto notempty{ false };
+	int isnum{ 0 };
+
+	lua_Integer last{ 0 };
+
+	/* loop through the table until we find the LAST key. */
+	for (lua_pushnil(pL); lua_next(pL, table) != 0; lua_pop(pL, 1)) {
+		auto key{ static_cast<lua_Integer>(lua_tonumberx(pL, -2, &isnum)) };
+		notempty = true;
+
+		if (!isnum) {
+			return luaL_argerror(pL, table, "The table has non-numeric keys, not an array?");
+		}
+
+		last = std::max(last, key);
+	}
+
+	/* found! add 1 to turn it into length. */
+	return notempty ? (1 + last) : 0;
+}
 
 void LMS::Lua::pushYYCScriptArgs(lua_State* pL, int argc, RValue* args[]) {
 	lua_newtable(pL);
@@ -265,17 +333,14 @@ void LMS::Lua::pushYYCScriptArgs(lua_State* pL, int argc, RValue* args[]) {
 void LMS::Lua::doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, RValue*& newargarr, RValue**& newargs, int& newargc, RValue**& args) {
 	if (lua_type(luactx, -1) == LUA_TNIL) return;
 
-	lua_len(luactx, -1);
-	auto tablen{ static_cast<lua_Integer>(lua_tonumber(luactx, -1)) };
-	lua_pop(luactx, 1);
-
-	
+	auto tablen{ findRealArrayLength(luactx) };
 	for (lua_Integer i{ 0 }; i < tablen; ++i) {
 		// we keep a copy of this table on the stack (for reference stuff...)
 		pushYYCScriptArgs(luactx, newargc, newargs);
 
 		// function
-		lua_geti(luactx, -2, 1 + i);
+		lua_pushinteger(luactx, 1 + i);
+		lua_gettable(luactx, -3);
 		if (lua_type(luactx, -1) == LUA_TNIL) {
 			// ignore nil entries.
 			lua_pop(luactx, 1);
@@ -329,9 +394,7 @@ void LMS::Lua::doScriptHookCall(bool& callorig, bool& callafter, const std::stri
 		lua_pop(luactx, 1); // pop result
 
 		// fetch args, they *should* be at the stacktop:
-		lua_len(luactx, -1);
-		newargc = static_cast<int>(lua_tonumber(luactx, -1));
-		lua_pop(luactx, 1);
+		newargc = static_cast<int>(findRealArrayLength(luactx));
 
 		if (newargs != args && newargs) {
 			delete[] newargs;
@@ -348,7 +411,8 @@ void LMS::Lua::doScriptHookCall(bool& callorig, bool& callafter, const std::stri
 			newargarr = new RValue[newargc];
 			newargs = new RValue*[newargc];
 			for (int i{ 0 }; i < newargc; ++i) {
-				lua_geti(luactx, -1, 1 + i);
+				lua_pushinteger(luactx, 1 + i);
+				lua_gettable(luactx, -2);
 				newargarr[i] = luaToRValue(luactx, -1);
 				lua_pop(luactx, 1);
 				newargs[i] = &newargarr[i];
@@ -431,16 +495,103 @@ RValue& LMS::Lua::HookScriptRoutine(CInstance* selfinst, CInstance* otherinst, R
 	return Result;
 }
 
+RValue& LMS::Lua::MethodCallRoutine(CInstance* selfinst, CInstance* otherinst, RValue& Result, int argc, RValue* args[], unsigned long long index) {
+	auto mykey{ ScapegoatMethods[index].k };
+
+	/* backup self */
+	auto tmpself{ curSelf }, tmpother{ curOther };
+	curSelf = selfinst;
+	curOther = otherinst;
+	arraySetOwner();
+
+	lua_getglobal(luactx, "LMS");
+	lua_pushstring(luactx, "Garbage");
+	lua_gettable(luactx, -2);
+	lua_pushstring(luactx, "Methods");
+	lua_gettable(luactx, -2);
+
+	auto before{ lua_gettop(luactx) };
+
+	// function:
+	lua_pushinteger(luactx, mykey);
+	lua_gettable(luactx, -2);
+
+	// self and other:
+	pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(selfinst));
+	if (selfinst != otherinst) {
+		pushYYObjectBase(luactx, reinterpret_cast<YYObjectBase*>(otherinst));
+	}
+	else {
+		lua_pushvalue(luactx, -1);
+	}
+
+	// args:
+	if (argc > 0) {
+		for (auto i{ 0 }; i < argc; ++i) {
+			rvalueToLua(luactx, *(args[i]));
+		}
+	}
+
+	auto ok{ lua_pcall(luactx, 2 + argc, LUA_MULTRET, 0) };
+	if (ok != LUA_OK) {
+		auto msg{ lua_tostring(luactx, -1) };
+		if (!msg) msg = "<LMS: nullptr string!>";
+		Global::throwError("Lua execution error in a method:\r\n" + std::string(msg));
+	}
+
+	auto after{ lua_gettop(luactx) };
+	auto diff{ after - before };
+	if (diff != 0) {
+		Result = luaToRValue(luactx, -1);
+		lua_pop(luactx, 1);
+		--diff;
+		if (diff > 0) {
+			lua_pop(luactx, diff);
+		}
+	}
+
+	/* stack balance: */
+	lua_pop(luactx, 1); // methods
+	lua_pop(luactx, 1); // garbage
+	lua_pop(luactx, 1); // lms
+
+	/* restore curself and curother */
+	curSelf = tmpself;
+	curOther = tmpother;
+
+	/* restore previous owner */
+	arraySetOwner();
+
+	return Result;
+}
+
+void LMS::Lua::FreeMethodAt(long long index) {
+	auto luakey{ ScapegoatMethods[index].k };
+
+	lua_getglobal(luactx, "LMS");
+	lua_pushstring(luactx, "Garbage");
+	lua_gettable(luactx, -2);
+	lua_pushstring(luactx, "Methods");
+	lua_gettable(luactx, -2);
+	lua_pushinteger(luactx, luakey);
+	lua_pushnil(luactx);
+	lua_settable(luactx, -3);
+	lua_pop(luactx, 1); // methods
+	lua_pop(luactx, 1); // garbage
+	lua_pop(luactx, 1); // lms
+
+	ScapegoatMethods[index].k = 0;
+}
+
 void LMS::Lua::doEventHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename) {
 	if (lua_type(luactx, -1) == LUA_TNIL) return;
 
-	lua_len(luactx, -1);
-	auto tablen{ static_cast<lua_Integer>(lua_tonumber(luactx, -1)) };
-	lua_pop(luactx, 1);
-
+	auto tablen{ findRealArrayLength(luactx) };
 	for (lua_Integer i{ 0 }; i < tablen; ++i) {
 		auto before{ lua_gettop(luactx) };
-		lua_geti(luactx, -1, 1 + i);
+
+		lua_pushinteger(luactx, 1 + i);
+		lua_gettable(luactx, -2);
 		if (lua_type(luactx, -1) == LUA_TNIL) {
 			// ignore nil entries.
 			lua_pop(luactx, 1);
@@ -1238,11 +1389,10 @@ int LMS::Lua::apiHookScript(lua_State* pL) {
 		lua_gettable(pL, -2);
 	}
 
-	lua_len(pL, -1);
-	auto tabind{ 1 + static_cast<lua_Integer>(lua_tonumber(pL, -1)) };
-	lua_pop(pL, 1); // length
+	auto tablen{ findRealArrayLength(pL) };
+	if (tablen == 0) ++tablen;
 
-	lua_pushinteger(pL, tabind);
+	lua_pushinteger(pL, tablen);
 	lua_pushvalue(pL, 3);
 	lua_settable(pL, -3);
 
@@ -1250,7 +1400,7 @@ int LMS::Lua::apiHookScript(lua_State* pL) {
 	lua_pop(pL, 1); // 'Garbage'
 	lua_pop(pL, 1); // 'LMS'
 
-	realname += "_" + std::to_string(tabind);
+	realname += "_" + std::to_string(tablen);
 	lua_pushstring(pL, realname.c_str());
 	return 1;
 }
@@ -1465,6 +1615,22 @@ int LMS::Lua::apiFileWatch(lua_State* pL) {
 	return 1;
 }
 
+int LMS::Lua::apiSetConsoleShow(lua_State* pL) {
+	// allow numbers as args too.
+	auto doShow{ (lua_tonumber(pL, 1) > 0.5) || (lua_toboolean(pL, 1)) };
+
+	auto res{ false };
+	if (doShow) {
+		res = ShowWindowAsync(GetConsoleWindow(), SW_SHOW) == TRUE;
+	}
+	else {
+		res = ShowWindowAsync(GetConsoleWindow(), SW_HIDE) == TRUE;
+	}
+
+	lua_pushboolean(pL, res);
+	return 1;
+}
+
 RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 	arraySetOwner();
 	switch (lua_type(pL, index)) {
@@ -1495,8 +1661,7 @@ RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 		}
 
 		case LUA_TFUNCTION: {
-			Global::throwError("LUA_TFUNCTION to gml method conversion is not implemented.");
-			return RValue{};
+			return luaToMethod(pL, index);
 		}
 
 		case LUA_TUSERDATA: {
@@ -1738,9 +1903,8 @@ int LMS::Lua::apiHookEvent(lua_State* pL) {
 		lua_gettable(pL, -2);
 	}
 
-	lua_len(pL, -1); /* stacktop - Object Table */
-	auto tablen{ 1 + static_cast<lua_Integer>(lua_tonumber(pL, -1)) }; /* stacktop - Object Table Len */
-	lua_pop(pL, 1);
+	auto tablen{ findRealArrayLength(pL) }; /* stacktop - Object Table Len */
+	if (tablen == 0) ++tablen;
 
 	lua_pushinteger(pL, tablen);
 	lua_pushvalue(pL, 5);
@@ -1970,6 +2134,9 @@ void LMS::Lua::initRuntime(lua_State* pL) {
 		else if (strcmp(realname, "ds_map_delete") == 0) {
 			F_DsMapDelete = func->f_routine;
 		}
+		else if (strcmp(realname, "ds_map_find_value") == 0) {
+			F_DsMapFindValue = func->f_routine;
+		}
 	}
 	/* initRuntime end */
 
@@ -2062,7 +2229,13 @@ bool LMS::Lua::directWith(lua_State* pL, RValue& newself, double ind) {
 
 	lua_pushvalue(pL, 2);
 	pushYYObjectBase(pL, reinterpret_cast<YYObjectBase*>(curSelf));
-	pushYYObjectBase(pL, reinterpret_cast<YYObjectBase*>(curOther));
+	if (curSelf != curOther) {
+		pushYYObjectBase(pL, reinterpret_cast<YYObjectBase*>(curOther));
+	}
+	else {
+		lua_pushvalue(pL, -1);
+	}
+
 	lua_pushnumber(pL, ind);
 
 	auto ok{ lua_pcall(pL, 3, LUA_MULTRET, 0) };
@@ -2096,6 +2269,45 @@ bool LMS::Lua::directWith(lua_State* pL, RValue& newself, double ind) {
 	arraySetOwner();
 
 	return shouldbreak;
+}
+
+RValue LMS::Lua::luaToMethod(lua_State* pL, int funcind) {
+	RValue obj{ nullptr };
+
+	auto funchash{ static_cast<lua_Integer>(reinterpret_cast<std::intptr_t>(lua_topointer(pL, funcind))) };
+	if (funchash == 0) {
+		luaL_error(pL, "Function hash value is zero. Please report this as a bug.\r\nstackind=%d", funcind);
+	}
+
+	/* find a free scapegoat YYC call routine: */
+	auto myind{ 0 };
+	for (auto i{ 0 }; true; ++i) {
+		if (!ScapegoatMethods[i].f) {
+			luaL_error(pL, "Reached the end of the scapegoat method table.");
+		}
+
+		if (ScapegoatMethods[i].k == funchash || ScapegoatMethods[i].k == 0) {
+			ScapegoatMethods[myind].k = funchash;
+			myind = i;
+			break;
+		}
+	}
+
+	lua_getglobal(pL, "LMS");
+	lua_pushstring(pL, "Garbage");
+	lua_gettable(pL, -2);
+	lua_pushstring(pL, "Methods");
+	lua_gettable(pL, -2);
+	lua_pushinteger(pL, funchash);
+	lua_pushvalue(pL, funcind);
+	lua_settable(pL, -3);
+	lua_pop(pL, 1); // methods
+	lua_pop(pL, 1); // garbage
+	lua_pop(pL, 1); // lms
+
+	YYSetScriptRef(&obj, ScapegoatMethods[myind].f, reinterpret_cast<YYObjectBase*>(curSelf));
+	//reinterpret_cast<CScriptRef*>(obj.pObj)->m_tag = "___anon___lms_method";
+	return obj;
 }
 
 int LMS::Lua::apiWith(lua_State* pL) {
@@ -2224,6 +2436,9 @@ void LMS::Lua::initApi(lua_State* pL) {
 	lua_pushstring(pL, "toInstance");
 	lua_pushcfunction(pL, &apiToInstance);
 	lua_settable(pL, -3);
+	lua_pushstring(pL, "setConsoleShow");
+	lua_pushcfunction(pL, &apiSetConsoleShow);
+	lua_settable(pL, -3);
 	lua_pushstring(pL, "fSkipNextHook");
 	lua_pushinteger(pL, HookBitFlags::SKIP_NEXT);
 	lua_settable(pL, -3);
@@ -2262,6 +2477,11 @@ void LMS::Lua::initGarbage(lua_State* pL) {
 
 	/* for watcher */
 	lua_pushstring(pL, "Watcher");
+	lua_newtable(pL);
+	lua_settable(pL, -3);
+
+	/* for passing methods */
+	lua_pushstring(pL, "Methods");
 	lua_newtable(pL);
 	lua_settable(pL, -3);
 

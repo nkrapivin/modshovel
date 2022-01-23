@@ -54,7 +54,9 @@ namespace LMS {
 
 		static void arraySetOwner();
 		static double getInstanceLen();
+		static lua_Integer findRealArrayLength(lua_State* pL);
 		static bool directWith(lua_State* pL, RValue& newself, double ind);
+		static RValue luaToMethod(lua_State* pL, int funcind);
 
 		static std::wstring stringToWstring(const std::string& str);
 		static std::string wstringToString(const std::wstring& str);
@@ -130,6 +132,7 @@ namespace LMS {
 		static int apiHookScript(lua_State* pL);
 		static int apiSetFileWatchFunction(lua_State* pL);
 		static int apiFileWatch(lua_State* pL);
+		static int apiSetConsoleShow(lua_State* pL);
 
 		static RValue luaToRValue(lua_State* pL, int index);
 		static void rvalueToLua(lua_State* pL, RValue& rv);
@@ -146,5 +149,7 @@ namespace LMS {
 	public:
 		static void Init();
 		static RValue& HookScriptRoutine(CInstance* selfinst, CInstance* otherinst, RValue& Result, int argc, RValue* args[], unsigned long long index);
+		static RValue& MethodCallRoutine(CInstance* selfinst, CInstance* otherinst, RValue& Result, int argc, RValue* args[], unsigned long long index);
+		static void FreeMethodAt(long long index);
 	};
 }

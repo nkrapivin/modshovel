@@ -195,6 +195,9 @@
     <ClInclude Include="LibModShovel_GMAutogen.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="LibModShovel_MethodAutogen.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="LibModShovel_Global.cpp">
@@ -339,6 +342,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="LibModShovel_GMAutogen.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LibModShovel_MethodAutogen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

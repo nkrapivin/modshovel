@@ -387,6 +387,7 @@ struct RFunction {
 };
 
 class CScriptRef : YYObjectBase {
+public:
 	CScript* m_callScript;
 	TObjectCall m_callCpp;
 	PFUNC_YYGMLScript_Internal m_callYYC;
@@ -695,3 +696,6 @@ extern TRoutine JS_GenericObjectConstructor;
 
 using YYObjectBase_Alloc_t = YYObjectBase*(*)(uint _n, uint _rvalueInitType, YYObjectBaseKind _objectkind, bool force_allocate_yyvars);
 extern YYObjectBase_Alloc_t YYObjectBase_Alloc;
+
+using YYSetScriptRef_t = void(*)(RValue* _pVal, PFUNC_YYGMLScript_Internal _pScript, YYObjectBase* _pSelf);
+extern YYSetScriptRef_t YYSetScriptRef;
