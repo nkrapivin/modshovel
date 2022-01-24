@@ -439,24 +439,24 @@ CScriptRefVTable CScriptRefVTable::HookTable{
 };
 
 void CScriptRef::HookPreFree() {
-	if (m_tag && strstr(m_tag, "___anon___lms_method_")) {
-		auto myind{ std::atoll(&m_tag[21/*prefix length*/])};
-		YYFree(reinterpret_cast<void*>(const_cast<char*>(m_tag)));
-		m_tag = nullptr;
-		LMS::Lua::FreeMethodAt(myind);
-	}
+	LMS::Lua::FreeMethodAt(reinterpret_cast<std::uintptr_t>(m_tag));
+	m_tag = nullptr;
 
-	CScriptRefVTable::Originals.PreFree(this);
+#ifdef _DEBUG
+	printf("[debug]: Freed method index %u\n", reinterpret_cast<std::uintptr_t>(m_tag));
+	fflush(stdout);
+#endif
+
+	std::invoke(CScriptRefVTable::Originals.PreFree, this);
 }
 
 void CScriptRefVTable::Obtain(CScriptRef* obj) {
-	if (Originals.Destructor) return;
+	if (Originals.Free) return;
 	/* originals only */
 	Originals = (**reinterpret_cast<PCScriptRefVTable*>(obj));
 	/* may contain replacements */
 	HookTable = Originals;
-	auto fuckmsvc{ &CScriptRef::HookPreFree }; /* doesn't let to recast a member function to anything, let's use a variable. */
-	HookTable.PreFree = *reinterpret_cast<dtor_t*>(&fuckmsvc);
+	HookTable.PreFree = &CScriptRef::HookPreFree;
 }
 
 void CScriptRefVTable::Replace(CScriptRef* obj) {

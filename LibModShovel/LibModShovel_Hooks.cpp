@@ -401,7 +401,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 	LPBYTE p_rvarray{ &pf_Variable_BuiltIn_Add[32] };
 
 	Create_Object_Lists = reinterpret_cast<Create_Object_Lists_t>(pf_Create_Object_Lists);
-	Insert_Event = reinterpret_cast<Insert_Event_t>(pf_Insert_Event);
+	(*reinterpret_cast<LPBYTE*>(&Insert_Event)) = pf_Insert_Event;
 
 	p_the_numb = reinterpret_cast<int*>(*reinterpret_cast<std::uintptr_t*>(p_length));
 	g_pCurrentMaxLength = reinterpret_cast<int*>(*reinterpret_cast<std::uintptr_t*>(p_capacity));

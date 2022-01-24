@@ -66,7 +66,8 @@ double LMS::Lua::pinDsMap{ -1.0 };
 /* called by LMS when a new array or struct wrapper is created and returned to Lua */
 void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
 	if (!pObj) {
-		Global::throwError("YYObjectBase pointer is null. Cannot pin a NULL object.");
+		//Global::throwError("YYObjectBase pointer is null. Cannot pin a NULL object.");
+		return;
 	}
 
 	RValue exists{ 0.0 };
@@ -93,7 +94,8 @@ void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
 	}
 	else {
 		/* increment refcount: */
-		refcountargs[2] = ++(refcount.val);
+		refcount.val += 1.0;
+		refcountargs[2] = refcount;
 		/* update refcount: */
 		F_DsMapReplace(refcount, curSelf, curOther, 3, refcountargs);
 	}
@@ -102,7 +104,8 @@ void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
 /* only called by '__gc' metamethods in struct/array wrappers. */
 void LMS::Lua::unpinYYObjectBase(YYObjectBase* pObj) {
 	if (!pObj) {
-		Global::throwError("YYObjectBase pointer is null. Cannot unpin a NULL object.");
+		// Global::throwError("YYObjectBase pointer is null. Cannot unpin a NULL object.");
+		return;
 	}
 
 	RValue exists{ 0.0 };
@@ -121,19 +124,20 @@ void LMS::Lua::unpinYYObjectBase(YYObjectBase* pObj) {
 	F_DsMapFindValue(refcount, curSelf, curOther, 2, refcountargs);
 
 	if ((refcount.kind & MASK_KIND_RVALUE) == VALUE_UNDEFINED) {
-		Global::throwError("Trying to unpin a non-existing YYObjectBase.");
+		luaL_error(luactx, "Trying to unpin a non-existing YYObjectBase.");
 	}
 	else {
 		/* decrement refcount and update: */
-		refcountargs[2] = --(refcount.val);
+		refcount.val -= 1.0;
+		refcountargs[2] = refcount;
 		F_DsMapReplace(refcount, curSelf, curOther, 3, refcountargs);
 		/* do we need to free? */
-		if (refcount.val <= 0.0) {
+		if (refcountargs[2].val <= 0.0) {
 			F_DsMapDelete(refcount, curSelf, curOther, 2, args);
 			F_DsMapDelete(refcount, curSelf, curOther, 2, refcountargs);
 
 #ifdef _DEBUG
-			std::cout << "Freed pinned YYObjectBase: 0x" << args[1].ptr << std::endl;
+			//std::cout << "Freed pinned YYObjectBase: 0x" << args[1].ptr << std::endl;
 #endif
 		}
 	}
@@ -156,13 +160,13 @@ std::wstring LMS::Lua::stringToWstring(const std::string& str) {
 
 	int siz{ MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.c_str(), str.size(), nullptr, 0) };
 	if (siz <= 0)
-		throw std::runtime_error{ "String conversion failed (1)." };
+		throw std::runtime_error{ "stringToWstring String conversion failed (1)." };
 
 	ws.resize(siz);
 
 	siz = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.c_str(), str.size(), ws.data(), siz);
 	if (siz <= 0)
-		throw std::runtime_error{ "String conversion failed (2)." };
+		throw std::runtime_error{ "stringToWstring String conversion failed (2)." };
 
 	return ws;
 }
@@ -176,13 +180,13 @@ std::string LMS::Lua::wstringToString(const std::wstring& str) {
 
 	int siz{ WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, str.c_str(), str.size(), nullptr, 0, nullptr, nullptr) };
 	if (siz <= 0)
-		throw std::runtime_error{ "String conversion failed (1)." };
+		throw std::runtime_error{ "wstringToString String conversion failed (1)." };
 
 	as.resize(siz);
 
 	siz = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, str.c_str(), str.size(), as.data(), siz, nullptr, nullptr);
 	if (siz <= 0)
-		throw std::runtime_error{ "String conversion failed (2)." };
+		throw std::runtime_error{ "wstringToString String conversion failed (2)." };
 
 	return as;
 }
@@ -1890,7 +1894,7 @@ int LMS::Lua::apiHookEvent(lua_State* pL) {
 		eventOriginalsMap[genKey(static_cast<int>(objind), static_cast<int>(evtype), static_cast<int>(evsubtype))] = nullptr;
 
 		/* need to insert the event and regen lists: */
-		Insert_Event(pobj->m_eventsMap, evsubtype | (evtype << 32ull), cptr);
+		std::invoke(Insert_Event, pobj->m_eventsMap, evsubtype | (evtype << 32ull), cptr);
 		Create_Object_Lists();
 	}
 
@@ -2303,7 +2307,8 @@ RValue LMS::Lua::luaToMethod(lua_State* pL, int funcind) {
 	}
 
 	/* find a free scapegoat YYC call routine: */
-	auto myind{ 0 };
+	auto myind{ -1 };
+	auto needtoadd{ false };
 	for (auto i{ 0 }; true; ++i) {
 		if (!ScapegoatMethods[i].f) {
 			luaL_error(pL, "Reached the end of the scapegoat method table.");
@@ -2311,32 +2316,39 @@ RValue LMS::Lua::luaToMethod(lua_State* pL, int funcind) {
 
 		if (ScapegoatMethods[i].k == funchash || ScapegoatMethods[i].k == 0) {
 			myind = i;
-			ScapegoatMethods[myind].k = funchash;
+			needtoadd = ScapegoatMethods[myind].k == 0;
 			break;
 		}
 	}
 
-	lua_getglobal(pL, "LMS");
-	lua_pushstring(pL, "Garbage");
-	lua_gettable(pL, -2);
-	lua_pushstring(pL, "Methods");
-	lua_gettable(pL, -2);
-	lua_pushinteger(pL, funchash);
-	lua_pushvalue(pL, funcind);
-	lua_settable(pL, -3);
-	lua_pop(pL, 1); // methods
-	lua_pop(pL, 1); // garbage
-	lua_pop(pL, 1); // lms
+	if (myind == -1) {
+		luaL_error(pL, "What the heck? myind=-1 in luaToMethod?");
+	}
+
+	if (needtoadd) {
+		ScapegoatMethods[myind].k = funchash;
+		lua_getglobal(pL, "LMS");
+		lua_pushstring(pL, "Garbage");
+		lua_gettable(pL, -2);
+		lua_pushstring(pL, "Methods");
+		lua_gettable(pL, -2);
+		lua_pushinteger(pL, funchash);
+		lua_pushvalue(pL, funcind);
+		lua_settable(pL, -3);
+		lua_pop(pL, 1); // methods
+		lua_pop(pL, 1); // garbage
+		lua_pop(pL, 1); // lms
+	}
 
 	YYSetScriptRef(&obj, ScapegoatMethods[myind].f, reinterpret_cast<YYObjectBase*>(curSelf));
-	std::string mytag{ "___anon___lms_method_" + std::to_string(myind) };
-	char* mystr{ nullptr };
-	MMSetLength(reinterpret_cast<void**>(&mystr), mytag.size() + 1);
-	std::memset(mystr, 0, mytag.size() + 1);
-	std::memcpy(mystr, mytag.data(), mytag.size());
-	reinterpret_cast<CScriptRef*>(obj.pObj)->m_tag = mystr;
 	CScriptRefVTable::Obtain(reinterpret_cast<CScriptRef*>(obj.pObj));
 	CScriptRefVTable::Replace(reinterpret_cast<CScriptRef*>(obj.pObj));
+	/* after we've set our VTable, we can set our custom tag. */
+	reinterpret_cast<CScriptRef*>(obj.pObj)->m_tag = reinterpret_cast<char*>(static_cast<std::uintptr_t>(myind));
+	/* needed to trigger GC of an object ASAP */
+	pinYYObjectBase(obj.pObj);
+	unpinYYObjectBase(obj.pObj);
+	/* we're done here. */
 	return obj;
 }
 

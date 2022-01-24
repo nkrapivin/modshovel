@@ -674,7 +674,7 @@ extern CHash<CObjectGM>** g_ppObjectHash;
 
 using Create_Object_Lists_t = void(*)();
 extern Create_Object_Lists_t Create_Object_Lists;
-using Insert_Event_t = void(__thiscall*)(CHashMap<unsigned long long, CEvent*, 3>* self, unsigned long long key, CEvent* value);
+using Insert_Event_t = void(CHashMap<unsigned long long, CEvent*, 3>::*)(unsigned long long key, CEvent* value);
 extern Insert_Event_t Insert_Event;
 
 //YYRValue& YYGML_CallMethod( CInstance* _pSelf, CInstance* _pOther, YYRValue& _result, int _argc, const YYRValue& _method, YYRValue** _args );
@@ -708,12 +708,12 @@ using YYSetScriptRef_t = void(*)(RValue* _pVal, PFUNC_YYGMLScript_Internal _pScr
 extern YYSetScriptRef_t YYSetScriptRef;
 
 struct CScriptRefVTable {
-	using dtor_t = void(__thiscall*)(CScriptRef* self);
-	using getyyvarref_t = RValue&(__thiscall*)(CScriptRef* self, int index);
-	using mark4gc_t = bool(__thiscall*)(CScriptRef* self, uint* _pM, int _numObjects);
-	using free_t = void(__thiscall*)(CScriptRef* self, bool preserve_map);
-	using threadfree_t = void(__thiscall*)(CScriptRef* self, bool preserve_map, GCContext* _pGCContext);
-	using prefree_t = void(__thiscall*)(CScriptRef* self);
+	using dtor_t = void(CScriptRef::*)();
+	using getyyvarref_t = RValue&(CScriptRef::*)(int index);
+	using mark4gc_t = bool(CScriptRef::*)(uint* _pM, int _numObjects);
+	using free_t = void(CScriptRef::*)(bool preserve_map);
+	using threadfree_t = void(CScriptRef::*)(bool preserve_map, GCContext* _pGCContext);
+	using prefree_t = void(CScriptRef::*)();
 	dtor_t Destructor;
 	getyyvarref_t InternalGetYYVarRef;
 	getyyvarref_t InternalGetYYVarRefL;
