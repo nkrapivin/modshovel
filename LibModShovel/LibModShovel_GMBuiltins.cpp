@@ -81,10 +81,10 @@ LMS::GMBuiltinVariable LMS::BuiltinVariables[]{
 { ("phy_position_xprevious"), (0U), (true) },
 { ("phy_position_yprevious"), (0U), (true) },
 { ("phy_collision_points"), (0U), (true) },
-{ ("phy_collision_x"), (0U), (true) },
-{ ("phy_collision_y"), (0U), (true) },
-{ ("phy_col_normal_x"), (0U), (true) },
-{ ("phy_col_normal_y"), (0U), (true) },
+{ ("phy_collision_x"), (10000U), (true) }, // length is phy_collision_points
+{ ("phy_collision_y"), (10000U), (true) }, // length is phy_collision_points
+{ ("phy_col_normal_x"), (10000U), (true) }, // length is phy_collision_points
+{ ("phy_col_normal_y"), (10000U), (true) }, // length is phy_collision_points
 { ("display_aa"), (0U), (false) },
 { ("delta_time"), (0U), (false) },
 { ("webgl_enabled"), (0U), (false) },

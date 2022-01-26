@@ -52,13 +52,16 @@ namespace LMS {
 
 		static void arraySetOwner();
 		static double getInstanceLen();
-		static lua_Integer findRealArrayLength(lua_State* pL);
+		static double getPhyColPoints();
+		static lua_Integer findRealArrayLength(lua_State* pL, bool hasStrings = false);
 		static bool directWith(lua_State* pL, RValue& newself, double ind);
 		static RValue luaToMethod(lua_State* pL, int funcind);
 
 		static std::wstring stringToWstring(const std::string& str);
 		static std::string wstringToString(const std::wstring& str);
 		static std::string getProgramDirectory();
+
+		static double assetAddLoop(lua_State* pL, RFunction* routine, double start = 0.0);
 
 		static void doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, RValue*& newargarr, RValue**& newargs, int& newargc, RValue**& args);
 		static void doEventHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename);
@@ -72,25 +75,18 @@ namespace LMS {
 
 		static void hookRoutineEvent(CInstance* selfinst, CInstance* otherinst);
 
-		static std::unordered_map<unsigned long long, PFUNC_YYGML> eventOriginalsMap;
+		static std::unordered_map<std::uint32_t, PFUNC_YYGML> eventOriginalsMap;
 		static std::unordered_map<std::string, std::pair<RVariableRoutine*, GMBuiltinVariable*>> builtinsMap;
 
 		static int scriptCall(lua_State* pL);
+		static void stackPrinter(lua_State* pL);
+		static int atPanicLua(lua_State* pL);
+		
 
 		/* metamethods */
 
-		/* RArray */
-		static int mtArrayLen(lua_State* pL);
-		static int mtArrayIndex(lua_State* pL);
-		static int mtArrayNewindex(lua_State* pL);
-		static int mtArrayGc(lua_State* pL);
-		static int mtArrayTostring(lua_State* pL);
-		static int mtArrayNext(lua_State* pL);
-		static int mtArrayPairs(lua_State* pL);
-		static int mtArrayIpairs(lua_State* pL);
-		static int mtArrayEq(lua_State* pL);
-
 		/* YYObjectBase or CInstance */
+		static lua_Integer mtStructPushNamesTable(lua_State* pL, const RValue& yyobj);
 		static int mtStructIndex(lua_State* pL);
 		static int mtStructNewindex(lua_State* pL);
 		static int mtStructGc(lua_State* pL);
@@ -98,6 +94,9 @@ namespace LMS {
 		static int mtStructLen(lua_State* pL);
 		static int mtStructEq(lua_State* pL);
 		static int mtStructCall(lua_State* pL);
+		static int mtStructNext(lua_State* pL);
+		static int mtStructPairs(lua_State* pL);
+		static int mtStructIpairs(lua_State* pL);
 
 		/* LMS.Builtins */
 		static int mtBuiltinIndex(lua_State* pL);
@@ -126,6 +125,7 @@ namespace LMS {
 		static int apiSetConsoleShow(lua_State* pL);
 		static int apiSetConsoleTitle(lua_State* pL);
 		static int apiClearConsole(lua_State* pL);
+		static int apiNext(lua_State* pL);
 
 		static RValue luaToRValue(lua_State* pL, int index);
 		static void rvalueToLua(lua_State* pL, RValue& rv);

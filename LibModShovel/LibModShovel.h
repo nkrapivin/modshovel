@@ -21,7 +21,7 @@ namespace LMS {
 		static HMODULE myDllHandle;
 
 		static bool waitForDebugger();
-		
+		static void printRandomQuote();
 
 	public:
 		/* these methods are used by other LMS classes */

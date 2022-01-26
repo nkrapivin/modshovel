@@ -64,8 +64,7 @@ bool LMS::Console::Init() {
 	// print something as a test.
 	std::cout
 		<< "LibModShovel (build " << __TIMESTAMP__ << ") by nkrapivindev"   << std::endl
-		<< "Please don't cheat in speedruns/leaderboards with this tool :(" << std::endl
-		<< std::endl;
+		<< "Please don't cheat in speedruns/leaderboards with this tool :(" << std::endl;
 	//
 	return true;
 }

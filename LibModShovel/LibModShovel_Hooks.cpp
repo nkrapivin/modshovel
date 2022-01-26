@@ -27,7 +27,7 @@ bool LMS::Hooks::predSearch(unsigned char a, unsigned char b) {
 
 /* a little search helper: */
 LPBYTE LMS::Hooks::fastCodeSearch(const std::vector<unsigned char>& contents) {
-	DWORD themask{ PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY };
+	DWORD themask{ PAGE_EXECUTE_READ };
 	LPBYTE address_low{ reinterpret_cast<LPBYTE>(modinfo.lpBaseOfDll) };
 	LPBYTE address_high{ address_low + modinfo.SizeOfImage };
 	MEMORY_BASIC_INFORMATION mbi{};
@@ -382,6 +382,39 @@ bool LMS::Hooks::ApplyInitHooks() {
 			/* ... */
 		})
 	};
+
+	LPBYTE pf_YYGetInt32{ fastCodeSearch({
+			// sub esp,0x10
+			0x83, 0xec, 0x10,
+			// push esi
+			0x56,
+			// push edi
+			0x57,
+			// mov edi, dword ptr [esp + param_2]
+			0x8b, 0x7c, 0x24, 0x20,
+			// mov esi,edi
+			0x8b, 0xf7,
+			// shl esi,0x4
+			0xc1, 0xe6, 0x04,
+			// add esi, dword ptr [esp + param_1]
+			0x03, 0x74, 0x24, 0x1c,
+			// mov eax, dword ptr [esi + 0xc]
+			0x8b, 0x46, 0x0c,
+			// and eax,UNSET_MASK_RV
+			0x25, 0xff, 0xff, 0xff, 0x00,
+			// cmp eax, 0xd
+			0x83, 0xf8, 0x0d,
+			// ja switchD_0197f7aa::caseD_2
+			0x0f, bany, bany, bany, bany, bany,
+			// movzx eax, byte ptr [eax + switchtable]
+			0x0f, bany, bany, bany, bany, bany, bany,
+			/* cases go below... */
+			0xff
+		})
+	};
+
+	pf_YYGetInt32 += 167;
+	g_ppFunction = reinterpret_cast<RFunction**>(*reinterpret_cast<std::uintptr_t*>(pf_YYGetInt32));
 
 	YYSetScriptRef = reinterpret_cast<YYSetScriptRef_t>(pf_YYSetScriptRef);
 	JS_GenericObjectConstructor = reinterpret_cast<TRoutine>(pf_JS_GenericObjectConstructor);

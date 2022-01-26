@@ -214,20 +214,19 @@ public:
 
 	RValue();
 	RValue(const RValue& other);
+	RValue(const RValue* other);
+	RValue(RValue* other);
 	RValue(bool v);
 	RValue(int v);
 	RValue(double v);
 	RValue(long long v);
-	RValue(PFUNC_YYGMLScript_Internal v, YYObjectBase* mtself); /* method constructor */
 	RValue& operator=(const RValue& other);
 	/* stringpointer stuff better be explicit */
 	explicit RValue(YYObjectBase* obj);
 	explicit RValue(RefDynamicArrayOfRValue* v);
 	explicit RValue(std::nullptr_t);
-	explicit RValue(void* v);
+	explicit RValue(const void* v);
 	explicit RValue(const char* v);
-	const RValue& operator[](std::size_t indx) const;
-	RValue& operator[](std::size_t indx);
 	bool tryToNumber(double& res) const;
 	~RValue();
 
@@ -235,6 +234,23 @@ public:
 	void* operator new[](size_t size);
 	void operator delete(void* p);
 	void operator delete[](void* p);
+
+	RValue& operator++();
+	RValue& operator--();
+	RValue operator++(int);
+	RValue operator--(int);
+	operator bool() const;
+	bool operator!() const;
+	explicit operator double() const;
+	explicit operator int() const;
+	explicit operator long long() const;
+	explicit operator const void* () const;
+	bool operator==(const RValue& other) const;
+	bool operator!=(const RValue& other) const;
+	bool operator<=(const RValue& other) const;
+	bool operator>=(const RValue& other) const;
+
+	inline bool isArray() const { return (kind & MASK_KIND_RVALUE) == VALUE_ARRAY; }
 };
 #pragma pack(pop)
 
@@ -377,12 +393,7 @@ using TRoutine = void(*)(RValue& Result, CInstance* selfinst, CInstance* otherin
 using JSConstructorFunc = TRoutine;
 using TObjectCall = TRoutine;
 
-extern TRoutine F_Typeof;
-extern TRoutine F_ArrayCreate;
-extern TRoutine F_ArrayGet;
-extern TRoutine F_ArraySet;
-extern TRoutine F_ArrayLength;
-void deriveYYCreateString();
+void deriveYYCreateString(std::byte* dat);
 
 struct RFunction {
 	char f_name[64];
@@ -694,7 +705,6 @@ public:
 void deriveObjectHash(std::byte* func);
 
 extern YYObjectBase* g_pGlobal;
-extern TRoutine F_String;
 
 using Create_Async_Event_t = void(*)(int dsmapindex, int event_index);
 extern Create_Async_Event_t Create_Async_Event;
@@ -743,3 +753,28 @@ struct CScriptRefVTable {
 };
 
 using PCScriptRefVTable = CScriptRefVTable*;
+
+template<typename T = void, typename... _Args>
+RValue rcall(RFunction* func, CInstance* self, CInstance* other, _Args... args) {
+	RValue res{ nullptr };
+
+	RFunction* old{ *g_ppFunction };
+	(*g_ppFunction) = func;
+	RValue rvargs[sizeof...(args)]{ args... };
+	func->f_routine(res, self, other, sizeof...(args), rvargs);
+	(*g_ppFunction) = old;
+
+	return res;
+}
+
+template<typename T = void>
+RValue rcall(RFunction* func, CInstance* self, CInstance* other) {
+	RValue res{ nullptr };
+
+	RFunction* old{ *g_ppFunction };
+	(*g_ppFunction) = func;
+	func->f_routine(res, self, other, 0, nullptr);
+	(*g_ppFunction) = old;
+
+	return res;
+}

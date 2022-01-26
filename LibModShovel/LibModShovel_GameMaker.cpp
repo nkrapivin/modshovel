@@ -26,14 +26,8 @@ RVariableRoutine* g_pRVArray{};
 YYObjectBase* g_pGlobal{};
 
 YYCreateString_t YYCreateString{};
-TRoutine F_Typeof{};
 YYRealloc_t YYRealloc{};
 YYFree_t YYFree{};
-TRoutine F_ArrayCreate{};
-TRoutine F_ArrayGet{};
-TRoutine F_ArraySet{};
-TRoutine F_ArrayLength{};
-TRoutine F_String{};
 
 FREE_RValue__Pre_t FREE_RValue__Pre{};
 COPY_RValue_do__Post_t COPY_RValue_do__Post{};
@@ -107,8 +101,8 @@ void deriveFreeRValue() {
 	FREE_RValue__Pre = reinterpret_cast<FREE_RValue__Pre_t>(pfn);
 }
 
-void deriveYYCreateString() {
-	std::byte* dat{ &reinterpret_cast<std::byte*>(F_Typeof)[45] };
+void deriveYYCreateString(std::byte* dat) {
+	dat += 45;
 
 	std::uintptr_t pfn{ *reinterpret_cast<std::uintptr_t*>(dat) };
 	pfn += reinterpret_cast<std::uintptr_t>(dat + sizeof(std::uintptr_t));
@@ -189,6 +183,12 @@ RValue::RValue(const RValue& other) : RValue() {
 	//return *this;
 }
 
+RValue::RValue(const RValue* other) : RValue{ *other } {
+}
+
+RValue::RValue(RValue* other) : RValue{ *other } {
+}
+
 RValue::RValue(bool v) : val{ v ? 1.0 : 0.0 }, flags{ 0 }, kind{ VALUE_BOOL } {
 }
 
@@ -205,23 +205,18 @@ RValue::RValue(YYObjectBase* obj) : pObj{ obj }, flags{ 0 }, kind{ VALUE_OBJECT 
 }
 
 RValue::RValue(RefDynamicArrayOfRValue* obj) : pArray{ obj }, flags{ 0 }, kind{ VALUE_ARRAY } {
-	pArray->refcount++;
+	++(pArray->refcount);
 }
 
 RValue::RValue(std::nullptr_t) : v64{ 0LL }, flags{ 0 }, kind{ VALUE_UNDEFINED } {
 }
 
-RValue::RValue(void* v) : ptr{ v }, flags{ 0 }, kind{ VALUE_PTR } {
+RValue::RValue(const void* v) : ptr{ const_cast<void*>(v) }, flags{ 0 }, kind{ VALUE_PTR } {
 }
 
 RValue::RValue(const char* v) : v64{ 0LL }, flags{ 0 }, kind{ VALUE_INT64 } {
 	// will turn an empty INT64 into a string value.
 	YYCreateString(this, v);
-}
-
-RValue::RValue(PFUNC_YYGMLScript_Internal v, YYObjectBase* mtself) : RValue{ nullptr } {
-	// turn our `undefined` rvalue into a method ref:
-
 }
 
 RValue::~RValue() {
@@ -248,39 +243,143 @@ void RValue::operator delete[](void* p) {
 	if (p) YYFree(p);
 }
 
-RValue& RValue::operator=(const RValue& other) {
-	__localCopy(other);
+RValue& RValue::operator++() {
+	switch (kind & MASK_KIND_RVALUE) {
+		case VALUE_INT32: ++v32; break;
+		case VALUE_INT64: ++v64; break;
+		case VALUE_REAL:
+		case VALUE_BOOL: ++val; break;
+		case VALUE_PTR: ptr = reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(ptr) + 1); break;
+		default: throw 123;
+	}
+
 	return *this;
 }
 
-const RValue& RValue::operator[](std::size_t indx) const {
-	if ((kind & MASK_KIND_RVALUE) != VALUE_ARRAY) {
-		LMS::Global::throwError("Type not array.");
+RValue& RValue::operator--() {
+	switch (kind & MASK_KIND_RVALUE) {
+		case VALUE_INT32: --v32; break;
+		case VALUE_INT64: --v64; break;
+		case VALUE_REAL:
+		case VALUE_BOOL: --val; break;
+		case VALUE_PTR: ptr = reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(ptr) - 1); break;
+		default: throw 123;
 	}
 
-	if (indx >= static_cast<std::size_t>(pArray->length)) {
-		LMS::Global::throwError("Array access out of range.");
-	}
-
-	return pArray->pArray[indx];
+	return *this;
 }
 
-RValue& RValue::operator[](std::size_t indx) {
-	if ((kind & MASK_KIND_RVALUE) != VALUE_ARRAY) {
-		RValue args[]{ static_cast<double>(indx) + 1.0 };
-		F_ArrayCreate(*this, nullptr, nullptr, 1, args);
-	}
+RValue RValue::operator++(int) {
+	RValue tmp{ *this };
+	operator++();
+	return tmp;
+}
 
-	if (indx >= static_cast<std::size_t>(pArray->length)) {
-		/* need to reallocate the thing... */
-		pArray->length = static_cast<int>(indx + 1);
-		MMSetLength(
-			reinterpret_cast<void**>(&pArray->pArray),
-			(indx * sizeof(RValue)) + sizeof(RValue)
-		);
-	}
+RValue RValue::operator--(int) {
+	RValue tmp{ *this };
+	operator--();
+	return tmp;
+}
 
-	return pArray->pArray[indx];
+RValue::operator bool() const {
+	switch (kind & MASK_KIND_RVALUE) {
+		case VALUE_INT32: return v32 > 0;
+		case VALUE_INT64: return v64 > 0;
+		case VALUE_BOOL:
+		case VALUE_REAL: return val > 0.5;
+		case VALUE_PTR: return ptr != nullptr;
+		default: throw 123;
+	}
+}
+
+bool RValue::operator!() const {
+	return !(this->operator bool());
+}
+
+RValue::operator double() const {
+	switch (kind & MASK_KIND_RVALUE) {
+	case VALUE_INT32: return static_cast<double>(v32);
+	case VALUE_INT64: return static_cast<double>(v64);
+	case VALUE_BOOL:
+	case VALUE_REAL: return static_cast<double>(val);
+	case VALUE_PTR: return static_cast<double>(reinterpret_cast<std::uintptr_t>(ptr));
+	default: throw 123;
+	}
+}
+
+RValue::operator int() const {
+	switch (kind & MASK_KIND_RVALUE) {
+	case VALUE_INT32: return static_cast<int>(v32);
+	case VALUE_INT64: return static_cast<int>(v64);
+	case VALUE_BOOL:
+	case VALUE_REAL: return static_cast<int>(val);
+	case VALUE_PTR: return static_cast<int>(reinterpret_cast<std::uintptr_t>(ptr));
+	default: throw 123;
+	}
+}
+
+RValue::operator long long() const {
+	switch (kind & MASK_KIND_RVALUE) {
+	case VALUE_INT32: return static_cast<long long>(v32);
+	case VALUE_INT64: return static_cast<long long>(v64);
+	case VALUE_BOOL:
+	case VALUE_REAL: return static_cast<long long>(val);
+	case VALUE_PTR: return static_cast<long long>(reinterpret_cast<std::uintptr_t>(ptr));
+	default: throw 123;
+	}
+}
+
+RValue::operator const void* () const {
+	switch (kind & MASK_KIND_RVALUE) {
+	case VALUE_INT32: return reinterpret_cast<void*>(static_cast<std::uintptr_t>(v32));
+	case VALUE_INT64: return reinterpret_cast<void*>(static_cast<std::uintptr_t>(v64));
+	case VALUE_BOOL:
+	case VALUE_REAL: return reinterpret_cast<void*>(static_cast<std::uintptr_t>(val));
+	case VALUE_PTR: return ptr;
+	default: throw 123;
+	}
+}
+
+bool RValue::operator==(const RValue& other) const {
+	switch (kind & MASK_KIND_RVALUE) {
+	case VALUE_INT32: return v32 == static_cast<int>(other);
+	case VALUE_INT64: return v64 == static_cast<long long>(other);
+	case VALUE_BOOL:
+	case VALUE_REAL: return val == static_cast<double>(other);
+	case VALUE_PTR: return ptr == static_cast<const void*>(other);
+	default: throw 123;
+	}
+}
+
+bool RValue::operator!=(const RValue& other) const {
+	return !((*this) == other);
+}
+
+bool RValue::operator<=(const RValue& other) const {
+	switch (kind & MASK_KIND_RVALUE) {
+	case VALUE_INT32: return v32 <= static_cast<int>(other);
+	case VALUE_INT64: return v64 <= static_cast<long long>(other);
+	case VALUE_BOOL:
+	case VALUE_REAL: return val <= static_cast<double>(other);
+	case VALUE_PTR: return ptr <= static_cast<const void*>(other);
+	default: throw 123;
+	}
+}
+
+bool RValue::operator>=(const RValue& other) const {
+	switch (kind & MASK_KIND_RVALUE) {
+	case VALUE_INT32: return v32 >= static_cast<int>(other);
+	case VALUE_INT64: return v64 >= static_cast<long long>(other);
+	case VALUE_BOOL:
+	case VALUE_REAL: return val >= static_cast<double>(other);
+	case VALUE_PTR: return ptr >= static_cast<const void*>(other);
+	default: throw 123;
+	}
+}
+
+RValue& RValue::operator=(const RValue& other) {
+	__localCopy(other);
+	return *this;
 }
 
 bool RValue::tryToNumber(double& res) const {
