@@ -1775,15 +1775,10 @@ int LMS::Lua::apiClearConsole(lua_State* pL) {
 
 int LMS::Lua::apiNext(lua_State* pL) {
 	auto argc{ lua_gettop(pL) }; /* will be passed to next() */
-	/* next cannot be called with argc<1. */
-	if (argc != 1 && argc != 2) {
-		return luaL_error(pL, "next() called with unsupported amount of arguments. can be either 1 or 2.");
-	}
 
 	/* push the needed next() function at the top of the stack: */
-	luaL_getmetafield(pL, 1, "__next"); /* first try __next */
-	if (lua_type(pL, -1) == LUA_TNIL) { /* no metatable or __next does not exist? */
-		lua_pop(pL, 1); /* pop unneeded nil value, try the original next() */
+	if (luaL_getmetafield(pL, 1, "__next") == LUA_TNIL) { /* no metatable or __next does not exist? */
+		//lua_pop(pL, 1); /* pop unneeded nil value, try the original next() */
 		lua_getglobal(pL, "LMS");
 		lua_pushstring(pL, "Garbage");
 		lua_gettable(pL, -2);
@@ -1794,10 +1789,9 @@ int LMS::Lua::apiNext(lua_State* pL) {
 		lua_remove(pL, lua_gettop(pL) - 1); // pop LMS
 	}
 	
-	/* arguments: */
-	lua_pushvalue(pL, 1); /* userdata or table, required argument. */
-	if (argc > 1) { /* index, optional argument, push if was provided. */
-		lua_pushvalue(pL, 2);
+	/* duplicate arguments for a function call: */
+	for (int start{ 1 }; start <= argc; ++start) {
+		lua_pushvalue(pL, start);
 	}
 
 	/* next() here is always called with two arguments, and return values are just passed through. */
