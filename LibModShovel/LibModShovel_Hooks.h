@@ -35,7 +35,7 @@ namespace LMS {
 
 		static bool ensureMinhookCall(MH_STATUS mh);
 		static bool predSearch(unsigned char a, unsigned char b);
-		static LPBYTE fastCodeSearch(const std::vector<unsigned char>& contents);
+		static LPBYTE fastCodeSearch(const std::vector<unsigned char>& contents, const char* funcname = "<unknown>");
 		static void initLLVM(SLLVMVars* pVars);
 		static void startRoom(int numb, bool starting);
 

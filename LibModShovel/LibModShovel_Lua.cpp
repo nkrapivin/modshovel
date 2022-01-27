@@ -34,7 +34,7 @@ struct RBuiltinData {
 	CInstance* owner;
 	RVariableRoutine* var;
 	LMS::GMBuiltinVariable* extra;
-	double(*getlenroutine)();
+	double(*getlenroutine)(lua_State* pL);
 };
 
 std::unordered_map<std::uint32_t, PFUNC_YYGML> LMS::Lua::eventOriginalsMap{};
@@ -73,7 +73,6 @@ LMS::HookBitFlags LMS::Lua::tmpFlags{ LMS::HookBitFlags::SKIP_NONE };
 /* called by LMS when a new array or struct wrapper is created and returned to Lua */
 void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
 	if (!pObj) {
-		//Global::throwError("YYObjectBase pointer is null. Cannot pin a NULL object.");
 		return;
 	}
 
@@ -102,7 +101,6 @@ void LMS::Lua::pinYYObjectBase(YYObjectBase* pObj) {
 /* only called by '__gc' metamethods in struct/array wrappers. */
 void LMS::Lua::unpinYYObjectBase(YYObjectBase* pObj) {
 	if (!pObj) {
-		// Global::throwError("YYObjectBase pointer is null. Cannot unpin a NULL object.");
 		return;
 	}
 
@@ -244,7 +242,7 @@ void LMS::Lua::pushRBuiltinAccessor(lua_State* pL, CInstance* pOwner, const std:
 	const auto item{ builtinsMap.find(name) };
 
 	if (item == builtinsMap.end()) {
-		Global::throwError("Unknown (array?) builtin variable name: " + name);
+		luaL_error(pL, "Unknown builtin variable name %s", name.c_str());
 	}
 
 	rbptr->owner = pOwner;
@@ -360,7 +358,7 @@ int LMS::Lua::atPanicLua(lua_State* pL) {
 	
 	Global::throwError("We're very sorry, Lua had entered a panic state, please see the full stacktrace in the debug console. The program will close after you click OK.");
 
-	/* technically the function never returns since throwError calls std::abort, but still. */
+	/* technically the function never returns since throw Error calls std::abort, but still. */
 	return 0; /* didn't push anything. */
 }
 
@@ -737,10 +735,10 @@ void LMS::Lua::hookRoutineEvent(CInstance* selfinst, CInstance* otherinst) {
 	std::string stacktracename{"gml_Object_"};
 	stacktracename += ev_objname.pString->get();
 	stacktracename += "_";
-	stacktracename += getEventName(static_cast<int>(ev_type.val));
+	stacktracename += getEventName(static_cast<int>(ev_type));
 	stacktracename += "_";
-	if (ev_type.val != 4.0 /*collsion event*/) {
-		stacktracename += std::to_string(static_cast<int>(ev_subtype.val));
+	if (static_cast<double>(ev_type) != 4.0 /*collsion event*/) {
+		stacktracename += std::to_string(static_cast<int>(ev_subtype));
 	}
 	else {
 		stacktracename += curOther->m_pObject->m_pName;
@@ -754,9 +752,9 @@ void LMS::Lua::hookRoutineEvent(CInstance* selfinst, CInstance* otherinst) {
 	auto skiphooks{ false };
 
 	auto func{ eventOriginalsMap[genKey(
-			static_cast<int>(ev_obj.val),
-			static_cast<int>(ev_type.val),
-			static_cast<int>(ev_subtype.val)
+			static_cast<int>(ev_obj),
+			static_cast<int>(ev_type),
+			static_cast<int>(ev_subtype)
 		)] };
 
 	/* push LMS.Garbage to the stack: */
@@ -837,11 +835,16 @@ double LMS::Lua::assetAddLoop(lua_State* pL, RFunction* routine, double start) {
 }
 
 int LMS::Lua::mtStructNext(lua_State* pL) {
-	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 	auto argc{ lua_gettop(pL) };
 
-	if ((*rptr)->isArray()) {
-		auto arraylen{ static_cast<double>(rcall(F_ArrayLength, curSelf, curOther, **rptr)) };
+	if ((!(*optr)) || (!((*optr)->pObj))) {
+		lua_pushnil(pL);
+		return 1;
+	}
+
+	if ((*optr)->isArray()) {
+		auto arraylen{ static_cast<double>(rcall(F_ArrayLength, curSelf, curOther, **optr)) };
 
 		// -1 cuz if the argument is `nil`, the index increments and we start at 0.
 		lua_Integer arrayind{ -1 };
@@ -864,7 +867,7 @@ int LMS::Lua::mtStructNext(lua_State* pL) {
 		}
 
 		// otherwise:
-		RValue res{ rcall(F_ArrayGet, curSelf, curOther, **rptr, arrayind) };
+		RValue res{ rcall(F_ArrayGet, curSelf, curOther, **optr, arrayind) };
 		lua_pushinteger(pL, 1 + arrayind);
 		rvalueToLua(pL, res);
 		return 2;
@@ -874,14 +877,13 @@ int LMS::Lua::mtStructNext(lua_State* pL) {
 		if (lua_type(pL, -1) == LUA_TNIL) {
 			lua_pop(pL, 1);
 			/* oh shit we don't have a names table assigned shit uhh let's make it real quick... */
-			mtStructPushNamesTable(pL, **rptr);
+			mtStructPushNamesTable(pL, **optr);
 			lua_setiuservalue(pL, 1, 1);
 			lua_getiuservalue(pL, 1, 1);
-		}
-
-		if (lua_type(pL, -1) == LUA_TNIL) {
-			/* UHHHHHHHHHHHHHHHHHHHHHHH */
-			return luaL_error(pL, "Unable to generate a varnames table.");
+			if (lua_type(pL, -1) == LUA_TNIL) {
+				/* UHHHHHHHHHHHHHHHHHHHHHHH */
+				return luaL_error(pL, "Unable to generate a varnames table.");
+			}
 		}
 
 		auto mytable{ lua_gettop(pL) };
@@ -917,10 +919,10 @@ int LMS::Lua::mtStructNext(lua_State* pL) {
 }
 
 int LMS::Lua::mtStructPairs(lua_State* pL) {
-	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
-	if (!((*rptr)->isArray())) {
-		mtStructPushNamesTable(pL, **rptr);
+	if ((*optr) && !((*optr)->isArray())) {
+		mtStructPushNamesTable(pL, **optr);
 		lua_setiuservalue(pL, 1, 1);
 	}
 
@@ -931,10 +933,10 @@ int LMS::Lua::mtStructPairs(lua_State* pL) {
 }
 
 int LMS::Lua::mtStructIpairs(lua_State* pL) {
-	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
-	if (!((*rptr)->isArray())) {
-		mtStructPushNamesTable(pL, **rptr);
+	if ((*optr) && !((*optr)->isArray())) {
+		mtStructPushNamesTable(pL, **optr);
 		lua_setiuservalue(pL, 1, 1);
 	}
 
@@ -992,7 +994,7 @@ lua_Integer LMS::Lua::mtStructPushNamesTable(lua_State* pL, const RValue& yyobj)
 int LMS::Lua::mtStructIndex(lua_State* pL) {
 	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
-	if (!(*optr) || lua_type(pL, 2) == LUA_TNIL) {
+	if ((!(*optr)) || (!((*optr)->pObj)) || lua_type(pL, 2) == LUA_TNIL) {
 		lua_pushnil(pL);
 	}
 	else if ((*optr)->isArray()) {
@@ -1030,7 +1032,7 @@ int LMS::Lua::mtStructIndex(lua_State* pL) {
 int LMS::Lua::mtStructNewindex(lua_State* pL) {
 	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
-	if (!(*optr) || lua_type(pL, 2) == LUA_TNIL) {
+	if ((!(*optr)) || (!((*optr)->pObj)) || lua_type(pL, 2) == LUA_TNIL) {
 		/*
 		* nil keys are not allowed.
 		* TODO: throw an error...?
@@ -1060,7 +1062,10 @@ int LMS::Lua::mtStructGc(lua_State* pL) {
 	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
 	if (*optr) {
-		unpinYYObjectBase((*optr)->pObj);
+		if ((*optr)->pObj) {
+			unpinYYObjectBase((*optr)->pObj);
+		}
+
 		delete (*optr);
 		(*optr) = nullptr;
 	}
@@ -1069,17 +1074,27 @@ int LMS::Lua::mtStructGc(lua_State* pL) {
 }
 
 int LMS::Lua::mtStructTostring(lua_State* pL) {
-	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
-	RValue res{ rcall(F_String, curSelf, curOther, **rptr) };
+	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+	if ((!(*optr)) || (!((*optr)->pObj))) {
+		lua_pushstring(pL, "yyobjectbase:null");
+		return 1;
+	}
+
+	RValue res{ rcall(F_String, curSelf, curOther, **optr) };
 	lua_pushfstring(pL, "yyobjectbase:%s", res.pString->get());
 	return 1;
 }
 
 int LMS::Lua::mtStructLen(lua_State* pL) {
-	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 
-	if ((*rptr)->isArray()) {
-		RValue arrlen{ rcall(F_ArrayLength, curSelf, curOther, **rptr) };
+	if ((!(*optr)) || (!((*optr)->pObj))) {
+		lua_pushinteger(pL, 0);
+		return 1;
+	}
+
+	if ((*optr)->isArray()) {
+		RValue arrlen{ rcall(F_ArrayLength, curSelf, curOther, **optr) };
 		rvalueToLua(pL, arrlen);
 	}
 	else {
@@ -1087,7 +1102,7 @@ int LMS::Lua::mtStructLen(lua_State* pL) {
 		if (lua_type(pL, -1) == LUA_TNIL) {
 			lua_pop(pL, 1);
 			/* oh shit we don't have a names table assigned shit uhh let's make it real quick... */
-			mtStructPushNamesTable(pL, **rptr);
+			mtStructPushNamesTable(pL, **optr);
 			lua_setiuservalue(pL, 1, 1);
 			lua_getiuservalue(pL, 1, 1);
 			if (lua_type(pL, -1) == LUA_TNIL) {
@@ -1108,7 +1123,7 @@ int LMS::Lua::mtStructLen(lua_State* pL) {
 int LMS::Lua::mtStructEq(lua_State* pL) {
 	auto rptr1{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
 	auto rptr2{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 2, "__LMS_metatable_RValue_Struct__")) };
-	lua_pushboolean(pL, (((*rptr1)->kind) == ((*rptr2)->kind) && ((*rptr1)->pObj) == ((*rptr2)->pObj)));
+	lua_pushboolean(pL, (*rptr1) && (*rptr2) && (((*rptr1)->kind) == ((*rptr2)->kind) && ((*rptr1)->pObj) == ((*rptr2)->pObj)));
 	return 1;
 }
 
@@ -1124,8 +1139,7 @@ int LMS::Lua::mtBuiltinIndex(lua_State* pL) {
 	auto name{ std::string(lua_tostring(pL, 2)) };
 	auto it{ builtinsMap.find(name) };
 	if (it == builtinsMap.end()) {
-		Global::throwError("index unknown builtin var name! " + name);
-		return 0;
+		return luaL_error(pL, "unknown builtin var name %s", name.c_str());
 	}
 
 	if (it->second.second->arrayLength > 0) {
@@ -1136,7 +1150,7 @@ int LMS::Lua::mtBuiltinIndex(lua_State* pL) {
 		// get the thing
 		RValue v{ nullptr };
 		if (!it->second.first->f_getroutine(reinterpret_cast<CInstance*>(curSelf), ARRAY_INDEX_NO_INDEX, &v)) {
-			Global::throwError("tbuiltin index failed to get builtin variable " + name);
+			return luaL_error(pL, "Failed to obtain builtin variable %s", name.c_str());
 		}
 
 		rvalueToLua(pL, v);
@@ -1149,22 +1163,23 @@ int LMS::Lua::mtBuiltinNewindex(lua_State* pL) {
 	// ignored
 	auto __tb{ luaL_checkudata(pL, 1, "__LMS_metatable_RValue_TBuiltin__") };
 
-	luaL_argcheck(pL, lua_type(pL, 2) != LUA_TNIL, 2, "new key cannot be nil.");
+	if (lua_type(pL, 2) == LUA_TNIL) {
+		return 0;
+	}
 
 	auto name{ std::string(lua_tostring(pL, 2)) };
 	auto theval{ luaToRValue(pL, 3) };
 	auto it{ builtinsMap.find(name) };
 	if (it == builtinsMap.end()) {
-		Global::throwError("newindex unknown builtin var name! " + name);
-		return 0;
+		return luaL_error(pL, "newindex unknown builtin var name %s", name.c_str());
 	}
 	
 	if (!it->second.first->f_canset || !it->second.first->f_setroutine) {
-		Global::throwError("Read only builtin variable " + name);
+		return luaL_error(pL, "builtin variable %s is READ ONLY.", name.c_str());
 	}
 
 	if (!it->second.first->f_setroutine(reinterpret_cast<CInstance*>(curSelf), ARRAY_INDEX_NO_INDEX, &theval)) {
-		Global::throwError("Failed to set read only builtin variable " + name);
+		return luaL_error(pL, "failed to assign to builtin variable %s", name.c_str());
 	}
 
 	return 0;
@@ -1185,7 +1200,7 @@ int LMS::Lua::mtRBuiltinIndex(lua_State* pL) {
 
 	arrlen = rbptr->extra->arrayLength;
 	if (rbptr->getlenroutine) {
-		arrlen = rbptr->getlenroutine();
+		arrlen = rbptr->getlenroutine(pL);
 	}
 
 	if (ind < 0 || ind >= arrlen) {
@@ -1195,10 +1210,7 @@ int LMS::Lua::mtRBuiltinIndex(lua_State* pL) {
 	
 	RValue res{ nullptr };
 	if (!rbptr->var->f_getroutine(rbptr->owner, ind, &res)) {
-		Global::throwError(
-			std::string("Failed to get built-in variable ") + std::string(rbptr->var->f_name) + std::string(":\r\n")
-			+ std::string("Lua Array index: ") + std::to_string(ind + 1)
-		);
+		return luaL_error(pL, "Failed to index builtin variable %s at index %d", rbptr->var->f_name, static_cast<int>(ind + 1));
 	}
 
 	rvalueToLua(pL, res);
@@ -1211,16 +1223,12 @@ int LMS::Lua::mtRBuiltinNewindex(lua_State* pL) {
 	luaL_argcheck(pL, lua_type(pL, 2) != LUA_TNIL, 2, "new index cannot be nil.");
 
 	int isn{};
-	auto ind{ static_cast<int>(lua_tonumberx(pL, 2, &isn)) };
+	auto ind{ static_cast<int>(lua_tonumberx(pL, 2, &isn) - 1.0) };
 	if (!isn) return luaL_argerror(pL, 2, "Builtin array var key can only be a number.");
 	auto theval{ luaToRValue(pL, 3) };
 
-	if (!rbptr->var->f_setroutine(rbptr->owner, ind - 1, &theval)) {
-		Global::throwError(
-			std::string("Failed to set built-in variable ") + std::string(rbptr->var->f_name) + std::string(":\r\n")
-			+ std::string("Lua Array index: ") + std::to_string(ind) + std::string(":\r\n")
-			+ std::string("RV type: ") + std::to_string(theval.kind & MASK_KIND_RVALUE)
-		);
+	if (!rbptr->var->f_setroutine(rbptr->owner, ind, &theval)) {
+		return luaL_error(pL, "Failed to set builtin variable %s at index %d", rbptr->var->f_name, static_cast<int>(ind + 1));
 	}
 
 	return 0;
@@ -1232,7 +1240,7 @@ int LMS::Lua::mtRBuiltinLen(lua_State* pL) {
 	RValue res{ 0.0 }; // initialize to real
 
 	if (rbptr->getlenroutine) {
-		res = rbptr->getlenroutine();
+		res = rbptr->getlenroutine(pL);
 	}
 	else {
 		res = static_cast<double>(rbptr->extra->arrayLength);
@@ -1249,7 +1257,7 @@ int LMS::Lua::mtRBuiltinNext(lua_State* pL) {
 	RValue arraylen{ 0.0 }; // initialize to real
 
 	if (rbptr->getlenroutine) {
-		arraylen = rbptr->getlenroutine();
+		arraylen = rbptr->getlenroutine(pL);
 	}
 	else {
 		arraylen = static_cast<double>(rbptr->extra->arrayLength);
@@ -1264,7 +1272,7 @@ int LMS::Lua::mtRBuiltinNext(lua_State* pL) {
 	// advance to next array element.
 	++arrayind;
 
-	if (arrayind < 0 || arrayind >= static_cast<lua_Integer>(arraylen.val)) {
+	if (arrayind < 0 || arrayind >= static_cast<lua_Integer>(arraylen)) {
 		lua_pushnil(pL);
 		return 1;
 	}
@@ -1307,7 +1315,11 @@ int LMS::Lua::mtRBuiltinEq(lua_State* pL) {
 }
 
 int LMS::Lua::mtStructCall(lua_State* pL) {
-	auto rptr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+	auto optr{ reinterpret_cast<RValue**>(luaL_checkudata(pL, 1, "__LMS_metatable_RValue_Struct__")) };
+
+	if ((!(*optr)) || (!((*optr)->pObj))) {
+		return 0;
+	}
 
 	RValue* args{ nullptr };
 	RValue** yyc_args{ nullptr };
@@ -1322,7 +1334,7 @@ int LMS::Lua::mtStructCall(lua_State* pL) {
 	}
 
 	RValue res{ nullptr };
-	res = YYGML_CallMethod(curSelf, curOther, res, argc, **rptr, yyc_args);
+	res = YYGML_CallMethod(curSelf, curOther, res, argc, **optr, yyc_args);
 
 	/* an argument might be inside those args so we convert first, then free YYC args. */
 	rvalueToLua(pL, res);
@@ -1471,11 +1483,11 @@ int LMS::Lua::apiHookScript(lua_State* pL) {
 			
 			auto ok{ MH_CreateHook(fun, ScapegoatScripts[myind].f, reinterpret_cast<LPVOID*>(&ScapegoatScripts[myind].t)) };
 			if (ok != MH_STATUS::MH_OK) {
-				Global::throwError("Failed to create a script hook due to minhook error!");
+				return luaL_error(pL, "MinHook script fail, %s", MH_StatusToString(ok));
 			}
 			ok = MH_EnableHook(fun);
 			if (ok != MH_STATUS::MH_OK) {
-				Global::throwError("Failed to enable script hook due to minhook error!");
+				return luaL_error(pL, "MinHook enable script fail, %s", MH_StatusToString(ok));
 			}
 
 			// aaand set the name!
@@ -1805,7 +1817,7 @@ RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 	switch (lua_type(pL, index)) {
 		case LUA_TNONE:
 		default: {
-			Global::throwError("Invalid Lua stack index or type in luaToRValue! ind=" + std::to_string(index));
+			luaL_error(pL, "RValue is unset, stack index=%d", index);
 			return RValue{}; // unset.
 		}
 
@@ -1862,7 +1874,9 @@ RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 				}
 			}
 			else {
-				Global::throwError("Not implemented userdata conversion! Please report this as a bug.");
+				auto errname{ "<unknown>" };
+				if (luaL_getmetafield(pL, index, "__name") != LUA_TNIL) errname = lua_tostring(pL, -1);
+				luaL_error(pL, "Unimplemented userdata conversion. __name=%s", errname);
 			}
 
 			return rv;
@@ -1896,9 +1910,7 @@ RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 
 			if (!allkeysarenums) {
 				/* make a struct */
-				RValue ret{ nullptr };
-				ret.kind = VALUE_OBJECT;
-				ret.pObj = YYObjectBase_Alloc(0, VALUE_UNSET, YYObjectBaseKind::KIND_YYOBJECTBASE, false);
+				RValue ret{ YYObjectBase_Alloc(0, VALUE_UNSET, YYObjectBaseKind::KIND_YYOBJECTBASE, false) };
 				JS_GenericObjectConstructor(ret, curSelf, curOther, 0, nullptr);
 				ret.pObj->m_class = "___struct___anon_modshovel";
 				// set our class name to an anonymous modshovel struct.
@@ -1932,7 +1944,7 @@ void LMS::Lua::rvalueToLua(lua_State* pL, RValue& rv) {
 	arraySetOwner();
 	switch (rv.kind & MASK_KIND_RVALUE) {
 		case VALUE_UNSET: {
-			Global::throwError("RValue Type is UNSET.");
+			luaL_error(pL, "RValue type is UNSET.");
 			break;
 		}
 
@@ -1957,7 +1969,7 @@ void LMS::Lua::rvalueToLua(lua_State* pL, RValue& rv) {
 		}
 
 		case VALUE_STRING: {
-			lua_pushstring(pL, rv.pString->m_thing);
+			lua_pushstring(pL, rv.pString->get());
 			break;
 		}
 
@@ -2036,7 +2048,7 @@ int LMS::Lua::apiHookEvent(lua_State* pL) {
 
 	/* get the garbage table */
 	std::string luaIdent{ std::string("gml_Object_") + std::string(pobj->m_pName) + "_" + getEventName(static_cast<int>(evtype)) + "_"};
-	if (evtype != 4) {
+	if (evtype != 4 /* collision event */) {
 		luaIdent += std::to_string(evsubtype);
 	}
 	else {
@@ -2099,12 +2111,12 @@ int LMS::Lua::luaRuntimeCall(lua_State* pL) {
 	cur->f_routine(retval, curSelf, curOther, argc, args);
 	rvalueToLua(pL, retval);
 
-	(*g_ppFunction) = old;
-
 	if (args) {
 		delete[] args;
 		args = nullptr;
 	}
+
+	(*g_ppFunction) = old;
 
 	return 1;
 }
@@ -2125,6 +2137,7 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__ipairs", &mtStructIpairs},
 		{"__len", &mtStructLen},
 		{"__next", &mtStructNext},
+		{"__close", &mtStructGc},
 		{nullptr, nullptr}
 	};
 
@@ -2152,6 +2165,7 @@ void LMS::Lua::initMetamethods(lua_State* pL) {
 		{"__pairs", &mtRBuiltinPairs},
 		{"__ipairs", &mtRBuiltinIpairs},
 		{"__eq", &mtRBuiltinEq},
+		//{"__close", &mtStructGc}
 		{nullptr, nullptr}
 	};
 
@@ -2338,10 +2352,10 @@ void LMS::Lua::initBuiltin(lua_State* pL) {
 	lua_settable(pL, -3); // -1 - Builtin table, -2 - "Builtin", -3 - LMS global object.
 }
 
-double LMS::Lua::getInstanceLen() {
+double LMS::Lua::getInstanceLen(lua_State* pL) {
 	RValue tst{ 0.0 };
 	if (!GV_InstanceCount(curSelf, ARRAY_INDEX_NO_INDEX, &tst)) {
-		Global::throwError("Unable to obtain builtin variable instance_count.");
+		luaL_error(pL, "Failed to get instance_count variable.");
 	}
 
 	if ((tst.kind & MASK_KIND_RVALUE) == VALUE_UNDEFINED)
@@ -2350,10 +2364,10 @@ double LMS::Lua::getInstanceLen() {
 		return static_cast<double>(tst);
 };
 
-double LMS::Lua::getPhyColPoints() {
+double LMS::Lua::getPhyColPoints(lua_State* pL) {
 	RValue tst{ 0.0 };
 	if (!GV_PhyColPoints(curSelf, ARRAY_INDEX_NO_INDEX, &tst)) {
-		Global::throwError("Unable to obtain builtin variable phy_collision_points.");
+		luaL_error(pL, "Failed to get phy_col_points variable.");
 	}
 
 	if ((tst.kind & MASK_KIND_RVALUE) == VALUE_UNDEFINED)
@@ -2479,13 +2493,11 @@ int LMS::Lua::apiWith(lua_State* pL) {
 	if (isNumber) {
 		if (rvnum == -1.0) {
 			// self
-			key.kind = VALUE_OBJECT;
-			key.pObj = reinterpret_cast<YYObjectBase*>(curSelf);
+			key = curSelf;
 		}
 		else if (rvnum == -2.0) {
 			// other
-			key.kind = VALUE_OBJECT;
-			key.pObj = reinterpret_cast<YYObjectBase*>(curOther);
+			key = curOther;
 		}
 		// -3 is `all`, handled below, just ignores the object index.
 		else if (rvnum == -4.0) {
@@ -2495,15 +2507,14 @@ int LMS::Lua::apiWith(lua_State* pL) {
 		}
 		else if (rvnum == -5.0) {
 			// `global`, yes, I permit a `global` with(), at your own risk of course :p
-			key.kind = VALUE_OBJECT;
-			key.pObj = g_pGlobal;
+			key = g_pGlobal;
 		}
 		else if (rvnum >= 100000.0) {
 			// typical instance id, gladly @@GetInstance@@ will get the YYobjectbase that belongs to that ID.
 			rcall(F_JSGetInstance, curSelf, curOther, rvnum);
 		}
 		else if (rvnum < -5.0) {
-			Global::throwError("Invalid instance id/number passed to apiWith(): " + std::to_string(rvnum));
+			luaL_argerror(pL, 1, "Invalid instance id or number passed to function.");
 		}
 	}
 
@@ -2512,18 +2523,16 @@ int LMS::Lua::apiWith(lua_State* pL) {
 	}
 	else {
 		// need to do a loop.
-		for (double i{ 0.0 }, cnt{ 1.0 }; i < getInstanceLen(); ++i) {
+		for (double i{ 0.0 }, cnt{ 1.0 }; i < getInstanceLen(pL); ++i) {
 			RValue myinstid{ -4.0 /* noone */ };
-			if (!GV_InstanceId(curSelf, static_cast<int>(i), &myinstid) || myinstid.val == -4.0) {
-				Global::throwError("Unable to fetch instance_id from array o_O");
-				return 0;
+			if (!GV_InstanceId(curSelf, static_cast<int>(i), &myinstid) || static_cast<double>(myinstid) == -4.0) {
+				return luaL_error(pL, "Unable to fetch instance id at index %d", static_cast<int>(i));
 			}
 
 			myinstid = rcall(F_JSGetInstance, curSelf, curOther, myinstid);
 			auto cinstptr{ reinterpret_cast<CInstance*>(myinstid.pObj) };
 			if (!cinstptr) {
-				Global::throwError("CInstance pointer is null...");
-				return 0;
+				return luaL_error(pL, "in with() CInstance pointer is null.");
 			}
 
 			bool isdeactive{ (cinstptr->m_InstFlags & (0x80 | 1 | 2)) != 0 };
@@ -2751,7 +2760,7 @@ void LMS::Lua::Init() {
 	luactx = luaL_newstate();
 	/* ensure we were able to allocate memory */
 	if (!luactx) {
-		Global::throwError("Failed to allocate memory for Lua!");
+		Global::throwError("Failed to allocate memory for Lua! Try restarting your computer.");
 		return;
 	}
 	/* allocated memory for lua? print copyright stuff then */

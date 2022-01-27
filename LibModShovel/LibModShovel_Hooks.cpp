@@ -26,7 +26,7 @@ bool LMS::Hooks::predSearch(unsigned char a, unsigned char b) {
 }
 
 /* a little search helper: */
-LPBYTE LMS::Hooks::fastCodeSearch(const std::vector<unsigned char>& contents) {
+LPBYTE LMS::Hooks::fastCodeSearch(const std::vector<unsigned char>& contents, const char* funcname) {
 	DWORD themask{ PAGE_EXECUTE_READ };
 	LPBYTE address_low{ reinterpret_cast<LPBYTE>(modinfo.lpBaseOfDll) };
 	LPBYTE address_high{ address_low + modinfo.SizeOfImage };
@@ -47,7 +47,7 @@ LPBYTE LMS::Hooks::fastCodeSearch(const std::vector<unsigned char>& contents) {
 		ZeroMemory(&mbi, sizeof(mbi));
 	}
 
-	Global::throwError("Code page search failed!");
+	Global::throwError("Failed to find function " + std::string(funcname));
 	return nullptr;
 }
 
@@ -109,7 +109,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0xc7, 0x00, 0x00, 0x00, 0x00, 0x00,
 			// mov globalvar
 			0x8b, 0x0d, /*....*/
-		})
+		}, "InitLLVM"),
 	};
 
 	LPBYTE pf_StartRoom{ fastCodeSearch({
@@ -145,7 +145,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0x64, 0xa3, 0x00, 0x00, 0x00, 0x00,
 			// cmp byte ptr [ebp + param_2],0x0
 			0x80, 0x7d, 0x0c, 0x00
-		})
+		}, "StartRoom")
 	};
 
 	/* lulz */
@@ -158,7 +158,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0x3b, 0xd0,
 			// jl if cmp is false
 			0x7c, 0x28, /* ... */
-		})
+		}, "Function_Add")
 	};
 
 	LPBYTE pf_YYRealloc{ fastCodeSearch({
@@ -178,7 +178,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0x83, 0xc4, 0x14,
 			// ret
 			0xc3 /* 0xcc, 0xcc, ... */
-		})
+		}, "YYRealloc")
 	};
 
 	LPBYTE pf_Sound_ReportSystemStatus{ fastCodeSearch({
@@ -198,7 +198,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0x83, 0xec, 0x08,
 			// movsd qword ptr [esp]=>local_1c,xmm0
 			0xf2, 0x0f, 0x11, 0x04, 0x24
-		})
+		}, "Sound_ReportSystemStatus")
 	};
 
 	YYRealloc = reinterpret_cast<YYRealloc_t>(pf_YYRealloc);
@@ -216,7 +216,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0x75, 0x0e,
 			// push [address] (INTERNAL ERROR)
 			0x68 /* ... */
-		})
+		}, "Variable_BuiltIn_Add")
 	};
 
 	LPBYTE pf_Create_Object_Lists{ fastCodeSearch({
@@ -230,7 +230,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0xb9, 0x00, 0x01, 0x00, 0x00,
 			// mov edi,[address]
 			0xbf /* ... */
-		})
+		}, "Create_Object_Lists")
 	};
 
 	LPBYTE pf_Insert_Event{ fastCodeSearch({
@@ -264,7 +264,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0x68, 0xb9, 0x79, 0x37, 0x9e,
 			// push second part of hash
 			0x68, 0x55, 0x7c, 0x4a, 0x7f
-		})
+		}, "CGMEvent::Insert_Event")
 	};
 
 	LPBYTE pf_cmp_userfunc{ fastCodeSearch({
@@ -284,7 +284,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0x89, 0x44, 0x24, 0x04,
 			// mov eax,[address]
 			0xa1 /* ... */
-		})
+		}, "cmp_userfunc")
 	};
 
 	LPBYTE pf_JS_GenericObjectConstructor{ fastCodeSearch({
@@ -309,7 +309,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			// mov dword ptr [esi + 0x24],func
 			0xc7, 0x46, 0x24,
 			bany, bany, bany, bany
-		})
+		}, "JS_GenericObjectConstructor")
 	};
 
 	LPBYTE pf_YYObjectBase_Alloc{ fastCodeSearch({
@@ -337,7 +337,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			// mov dword ptr [ebp*0x4 + addr],eax
 			0x89, 0x04, 0xad
 			/* ... */
-		})
+		}, "YYObjectBase::Alloc")
 	};
 
 	LPBYTE pf_YYSetScriptRef{ fastCodeSearch({
@@ -380,7 +380,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			// add esp,0x4
 			0x83, 0xc4, 0x04
 			/* ... */
-		})
+		}, "YYSetScriptRef")
 	};
 
 	LPBYTE pf_YYGetInt32{ fastCodeSearch({
@@ -410,7 +410,7 @@ bool LMS::Hooks::ApplyInitHooks() {
 			0x0f, bany, bany, bany, bany, bany, bany,
 			/* cases go below... */
 			0xff
-		})
+		}, "YYGetInt32")
 	};
 
 	pf_YYGetInt32 += 167;

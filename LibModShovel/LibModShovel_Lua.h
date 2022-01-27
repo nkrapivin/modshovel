@@ -51,8 +51,8 @@ namespace LMS {
 		static void unpinYYObjectBase(YYObjectBase* pObj);
 
 		static void arraySetOwner();
-		static double getInstanceLen();
-		static double getPhyColPoints();
+		static double getInstanceLen(lua_State* pL);
+		static double getPhyColPoints(lua_State* pL);
 		static lua_Integer findRealArrayLength(lua_State* pL, bool hasStrings = false);
 		static bool directWith(lua_State* pL, RValue& newself, double ind);
 		static RValue luaToMethod(lua_State* pL, int funcind);
