@@ -13,18 +13,6 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
-    <Filter Include="Header Files\lua-5.4.3">
-      <UniqueIdentifier>{b50f4c46-6957-491c-a2be-89ac11c5671c}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Header Files\lua-5.4.3\src">
-      <UniqueIdentifier>{3fae52ab-892a-497f-9a67-3e4f1840eefc}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\lua-5.4.3">
-      <UniqueIdentifier>{a3672d17-0449-477a-a0de-a5cedbbc6fa8}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\lua-5.4.3\src">
-      <UniqueIdentifier>{5c9f09c1-e3e1-478a-958e-ed905718bd0b}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Header Files\minhook">
       <UniqueIdentifier>{bfe11696-e7e1-4f95-9f56-f923ee04baf5}</UniqueIdentifier>
     </Filter>
@@ -46,6 +34,18 @@
     <Filter Include="Header Files\minhook\src\hde">
       <UniqueIdentifier>{3f0e5da1-b071-4a74-b843-015ef6497063}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\lua-5.4.4">
+      <UniqueIdentifier>{dd107acd-24de-4897-8586-7d2d8152c645}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\lua-5.4.4\src">
+      <UniqueIdentifier>{686ad4b9-012a-48d5-b340-6aa1f54edbc3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\lua-5.4.4">
+      <UniqueIdentifier>{130ec163-8396-4d6b-ba8b-5fd3834ffb53}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\lua-5.4.4\src">
+      <UniqueIdentifier>{d8edc012-023c-4ba6-ab5a-ab02b3f30e11}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="cpp.hint" />
@@ -62,90 +62,6 @@
     </ClInclude>
     <ClInclude Include="pch.h">
       <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lapi.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lauxlib.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lcode.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lctype.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\ldebug.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\ldo.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lfunc.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lgc.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\ljumptab.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\llex.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\llimits.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lmem.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lobject.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lopcodes.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lopnames.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lparser.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lprefix.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lstate.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lstring.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\ltable.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\ltm.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lua.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lua.hpp">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\luaconf.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lualib.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lundump.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lvm.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
-    </ClInclude>
-    <ClInclude Include="lua-5.4.3\src\lzio.h">
-      <Filter>Header Files\lua-5.4.3\src</Filter>
     </ClInclude>
     <ClInclude Include="minhook\include\MinHook.h">
       <Filter>Header Files\minhook\include</Filter>
@@ -198,6 +114,90 @@
     <ClInclude Include="LibModShovel_MethodAutogen.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lapi.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lauxlib.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lcode.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lctype.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\ldebug.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\ldo.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lfunc.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lgc.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\ljumptab.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\llex.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\llimits.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lmem.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lobject.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lopcodes.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lopnames.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lparser.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lprefix.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lstate.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lstring.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\ltable.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\ltm.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lua.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lua.hpp">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\luaconf.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lualib.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lundump.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lvm.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
+    <ClInclude Include="lua-5.4.4\src\lzio.h">
+      <Filter>Header Files\lua-5.4.4\src</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="LibModShovel_Global.cpp">
@@ -208,102 +208,6 @@
     </ClCompile>
     <ClCompile Include="pch.cpp">
       <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lapi.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lauxlib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lbaselib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lcode.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lcorolib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lctype.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\ldblib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\ldebug.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\ldo.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\ldump.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lfunc.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lgc.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\linit.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\liolib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\llex.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lmathlib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lmem.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\loadlib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lobject.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lopcodes.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\loslib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lparser.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lstate.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lstring.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lstrlib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\ltable.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\ltablib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\ltm.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lundump.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lutf8lib.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lvm.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
-    </ClCompile>
-    <ClCompile Include="lua-5.4.3\src\lzio.c">
-      <Filter>Source Files\lua-5.4.3\src</Filter>
     </ClCompile>
     <ClCompile Include="minhook\src\buffer.c">
       <Filter>Source Files\minhook\src</Filter>
@@ -346,6 +250,102 @@
     </ClCompile>
     <ClCompile Include="LibModShovel_MethodAutogen.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lapi.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lauxlib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lbaselib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lcode.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lcorolib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lctype.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\ldblib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\ldebug.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\ldo.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\ldump.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lfunc.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lgc.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\linit.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\liolib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\llex.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lmathlib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lmem.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\loadlib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lobject.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lopcodes.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\loslib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lparser.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lstate.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lstring.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lstrlib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\ltable.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\ltablib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\ltm.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lundump.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lutf8lib.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lvm.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
+    </ClCompile>
+    <ClCompile Include="lua-5.4.4\src\lzio.c">
+      <Filter>Source Files\lua-5.4.4\src</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

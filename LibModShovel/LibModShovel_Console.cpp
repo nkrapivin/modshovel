@@ -49,7 +49,7 @@ bool LMS::Console::Init() {
 	if (!GetConsoleMode(conOut, &dwOutmode)) return false;
 	if (!GetConsoleMode(conIn, &dwInmode)) return false;
 	// enable vt100 stuff for lua
-	if (!SetConsoleMode(conOut, dwOutmode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) return false;
+	SetConsoleMode(conOut, dwOutmode | 0x0004);
 	// if (!SetConsoleMode(conIn, dwInmode | ENABLE_VIRTUAL_TERMINAL_INPUT)) return false; // breaks backspaces...
 	// set console window title
 	if (!SetConsoleTitleW(L"LibModShovel (build " TEXT(__TIMESTAMP__) L"): Debug/Lua print() Console Window")) return false;
@@ -89,5 +89,5 @@ bool LMS::Console::Quit() {
 	CloseHandle(conOut);
 	conOut = nullptr;
 	//
-	return FreeConsole();
+	return FreeConsole() == TRUE;
 }

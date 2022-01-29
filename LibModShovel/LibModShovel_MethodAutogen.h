@@ -12,10 +12,6 @@ namespace LMS {
 }
 
 #ifdef MethodAutogen_Implementation
-#define MAI_Stringify(x) #x
-#define MAI_ToString(x) MAI_Stringify(x)
-#define MAI_Joiner(x, y) x ## y
-#define MAI_Join(x, y) MAI_Joiner(x, y)
 #define fdef(ind) \
 	{ ([](CInstance* selfinst, CInstance* otherinst, RValue& Result, int argc, RValue* args[])->RValue& \
 	{ return LMS::Lua::MethodCallRoutine(selfinst, otherinst, Result, argc, args, (ind)); } ), (0LL) }

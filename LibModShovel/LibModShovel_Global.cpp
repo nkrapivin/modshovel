@@ -35,7 +35,7 @@ bool LMS::Global::waitForDebugger() {
 /* turns a constant string literal into a utf-8 constant string. */
 #define q(_the_quote_string_literal_) ( u8 ## _the_quote_string_literal_ )
 void LMS::Global::printRandomQuote() {
-	static std::array<std::string, 17 /* set to the amount of quotes below plzkthx */> randomQuotes{
+	static std::array<std::string, 19 /* set to the amount of quotes below plzkthx */> randomQuotes{
 		/* begin. */
 		q("libLassebq? Never heard of it."),
 		q("Beep boop, game resumed."),
@@ -53,12 +53,14 @@ void LMS::Global::printRandomQuote() {
 		q("NDAs are evil and are a threat to society."),
 		q("Code obfuscators are evil and are a threat to society."),
 		q("sleep is for the weak."),
-		q("The timestamp is 5 hours off, blame Visual Studio D:")
+		q("The timestamp is 5 hours off, blame Visual Studio D:"),
+		q("Now with (proper) exception handling!"),
+		q("Now with Lua 5.4.4!")
 		/* end. */
 	};
 
 	/* init libc prng */
-	std::srand(static_cast<unsigned>(std::time(nullptr)));
+	std::srand(static_cast<unsigned>(time(nullptr)));
 	std::cout << q("- '") << randomQuotes[rand() % randomQuotes.size()] << q("'") << std::endl;
 }
 #undef q

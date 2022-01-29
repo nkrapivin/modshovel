@@ -4,8 +4,7 @@
 * LibModShovel by nkrapivindev
 * GameMaker Studio 2.3.3 internal structures and classes.
 */
-
-#include <string_view>
+#include "LibModShovel.h"
 
 // fwd decls:
 using uint = unsigned;
@@ -754,15 +753,30 @@ struct CScriptRefVTable {
 
 using PCScriptRefVTable = CScriptRefVTable*;
 
+using LMS_ExceptionHandler_t = int(*)(const RValue& exceptionObject);
+extern LMS_ExceptionHandler_t LMS_ExceptionHandler;
+
 template<typename T = void, typename... _Args>
 RValue rcall(RFunction* func, CInstance* self, CInstance* other, _Args... args) {
 	RValue res{ nullptr };
 
-	RFunction* old{ *g_ppFunction };
-	(*g_ppFunction) = func;
-	RValue rvargs[sizeof...(args)]{ args... };
-	func->f_routine(res, self, other, sizeof...(args), rvargs);
-	(*g_ppFunction) = old;
+	try {
+		
+
+		RFunction* old{ *g_ppFunction };
+		(*g_ppFunction) = func;
+		RValue rvargs[sizeof...(args)]{ args... };
+		func->f_routine(res, self, other, sizeof...(args), rvargs);
+		(*g_ppFunction) = old;
+	}
+	catch (const YYGMLException& e) {
+		if (LMS_ExceptionHandler) {
+			LMS_ExceptionHandler(e.GetExceptionObject());
+		}
+		else {
+			throw;
+		}
+	}
 
 	return res;
 }
@@ -770,11 +784,47 @@ RValue rcall(RFunction* func, CInstance* self, CInstance* other, _Args... args) 
 template<typename T = void>
 RValue rcall(RFunction* func, CInstance* self, CInstance* other) {
 	RValue res{ nullptr };
+	try {
+		
 
-	RFunction* old{ *g_ppFunction };
-	(*g_ppFunction) = func;
-	func->f_routine(res, self, other, 0, nullptr);
-	(*g_ppFunction) = old;
+		RFunction* old{ *g_ppFunction };
+		(*g_ppFunction) = func;
+		func->f_routine(res, self, other, 0, nullptr);
+		(*g_ppFunction) = old;
+	}
+	catch (const YYGMLException& e) {
+		if (LMS_ExceptionHandler) {
+			LMS_ExceptionHandler(e.GetExceptionObject());
+		}
+		else {
+			throw;
+		}
+	}
 
 	return res;
 }
+
+template<typename T = void>
+RValue rdcall(RFunction* func, CInstance* self, CInstance* other, int argc, RValue* args) {
+	RValue res{ nullptr };
+	try {
+		
+
+		RFunction* old{ *g_ppFunction };
+		(*g_ppFunction) = func;
+		func->f_routine(res, self, other, argc, args);
+		(*g_ppFunction) = old;
+	}
+	catch (const YYGMLException& e) {
+		if (LMS_ExceptionHandler) {
+			LMS_ExceptionHandler(e.GetExceptionObject());
+		}
+		else {
+			throw;
+		}
+	}
+	return res;
+}
+
+using CreateAsynEventWithDSMapAndBuffer_t = void(*)(int dsmapindex, int buffer, int event_index);
+extern CreateAsynEventWithDSMapAndBuffer_t CreateAsynEventWithDSMapAndBuffer;

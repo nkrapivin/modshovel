@@ -13,10 +13,11 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <memory>
 
-#include "lua-5.4.3/src/lua.h"
-#include "lua-5.4.3/src/lualib.h"
-#include "lua-5.4.3/src/lauxlib.h"
+#include "lua-5.4.4/src/lua.h"
+#include "lua-5.4.4/src/lualib.h"
+#include "lua-5.4.4/src/lauxlib.h"
 
 /*
 * LibModShovel by nkrapivindev
@@ -46,6 +47,7 @@ namespace LMS {
 			_In_    DWORD dwNumberOfBytesTransfered,
 			_Inout_ LPOVERLAPPED lpOverlapped);
 
+		static int exceptionHandler(const RValue& e);
 		static double pinDsMap;
 		static void pinYYObjectBase(YYObjectBase* pObj);
 		static void unpinYYObjectBase(YYObjectBase* pObj);
@@ -63,7 +65,7 @@ namespace LMS {
 
 		static double assetAddLoop(lua_State* pL, RFunction* routine, double start = 0.0);
 
-		static void doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, RValue*& newargarr, RValue**& newargs, int& newargc, RValue**& args);
+		static void doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, std::unique_ptr<RValue[]>& newargarr, std::unique_ptr<RValue* []>& newargs, int& newargc);
 		static void doEventHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename);
 
 		static void pushYYObjectBase(lua_State* pL, YYObjectBase* thing);
@@ -126,6 +128,7 @@ namespace LMS {
 		static int apiSetConsoleTitle(lua_State* pL);
 		static int apiClearConsole(lua_State* pL);
 		static int apiNext(lua_State* pL);
+		static int apiCatchGmlExceptions(lua_State* pL);
 
 		static RValue luaToRValue(lua_State* pL, int index);
 		static void rvalueToLua(lua_State* pL, RValue& rv);

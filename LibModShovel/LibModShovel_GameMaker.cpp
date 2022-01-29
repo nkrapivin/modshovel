@@ -38,6 +38,7 @@ YYGML_CallMethod_t YYGML_CallMethod{};
 YYSetScriptRef_t YYSetScriptRef{};
 
 Create_Async_Event_t Create_Async_Event{};
+CreateAsynEventWithDSMapAndBuffer_t CreateAsynEventWithDSMapAndBuffer{};
 
 TRoutine JS_GenericObjectConstructor{};
 YYObjectBase_Alloc_t YYObjectBase_Alloc{};

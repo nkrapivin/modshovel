@@ -1,7 +1,11 @@
 #pragma once
 #include "pch.h"
 #include <string>
-#include <string_view>
+/* this is very horrible, I know... */
+namespace std {
+	using byte = unsigned char;
+	using string_view = string;
+}
 #ifdef LIBMODSHOVEL_EXPORTS
 #define LIBMODSHOVEL_API __declspec(dllexport)
 #else

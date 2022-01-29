@@ -29,6 +29,7 @@ TGetVarRoutine GV_ProgramDirectory{};
 TGetVarRoutine GV_PhyColPoints{};
 
 std::mutex FreeMtMutex{};
+LMS_ExceptionHandler_t LMS_ExceptionHandler{};
 
 struct RBuiltinData {
 	CInstance* owner;
@@ -154,7 +155,7 @@ std::wstring LMS::Lua::stringToWstring(const std::string& str) {
 
 	ws.resize(siz);
 
-	siz = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.c_str(), str.size(), ws.data(), siz);
+	siz = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.c_str(), str.size(), const_cast<wchar_t*>(ws.data()), siz);
 	if (siz <= 0)
 		throw std::runtime_error{ "stringToWstring String conversion failed (2)." };
 
@@ -174,7 +175,7 @@ std::string LMS::Lua::wstringToString(const std::wstring& str) {
 
 	as.resize(siz);
 
-	siz = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, str.c_str(), str.size(), as.data(), siz, nullptr, nullptr);
+	siz = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, str.c_str(), str.size(), const_cast<char*>(as.data()), siz, nullptr, nullptr);
 	if (siz <= 0)
 		throw std::runtime_error{ "wstringToString String conversion failed (2)." };
 
@@ -293,23 +294,28 @@ int LMS::Lua::scriptCall(lua_State* pL) {
 	RValue mvtret{ nullptr };
 	RValue rvmtind{ mtind };
 
-	RValue* args{ nullptr };
-	RValue** yyc_args{ nullptr };
+	std::unique_ptr<RValue[]> args{  };
+	std::unique_ptr<RValue*[]> yyc_args{  };
 	std::size_t argc{ static_cast<std::size_t>(lua_gettop(pL)) };
 	if (argc > 0) {
-		args = new RValue[argc];
-		yyc_args = new RValue*[argc];
+		args = std::make_unique<RValue[]>(argc);
+		yyc_args = std::make_unique<RValue* []>(argc);
 		for (std::size_t i{ 0 }; i < argc; ++i) {
 			args[i] = luaToRValue(pL, 1 + i);
 			yyc_args[i] = &args[i];
 		}
 	}
 
-	mvtret = YYGML_CallMethod(curSelf, curOther, mvtret, static_cast<int>(argc), rvmtind, yyc_args);
-
-	if (argc > 0) {
-		delete[] yyc_args;
-		delete[] args;
+	try {
+		mvtret = YYGML_CallMethod(curSelf, curOther, mvtret, static_cast<int>(argc), rvmtind, yyc_args.get());
+	}
+	catch (const YYGMLException& e) {
+		if (LMS_ExceptionHandler) {
+			LMS_ExceptionHandler(e.GetExceptionObject());
+		}
+		else {
+			throw;
+		}
 	}
 
 	rvalueToLua(pL, mvtret);
@@ -317,6 +323,7 @@ int LMS::Lua::scriptCall(lua_State* pL) {
 }
 
 void LMS::Lua::stackPrinter(lua_State* pL) {
+	std::cout << "-- Stacktrace begin                                      --" << std::endl;
 	std::cout << "-- Format is [stackIndex:valType] = valueAsString        --" << std::endl;
 
 	/* the stack in lua starts at element lua_gettop() and ends at 1. 0 is an invalid stack index. -1 is a pseudo ind. */
@@ -402,13 +409,13 @@ void LMS::Lua::pushYYCScriptArgs(lua_State* pL, int argc, RValue* args[]) {
 	}
 }
 
-void LMS::Lua::doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, RValue*& newargarr, RValue**& newargs, int& newargc, RValue**& args) {
+void LMS::Lua::doScriptHookCall(bool& callorig, bool& callafter, const std::string& prefix, const std::string& stacktracename, RValue& Result, std::unique_ptr<RValue[]>& newargarr, std::unique_ptr<RValue*[]>& newargs, int& newargc) {
 	if (lua_type(luactx, -1) == LUA_TNIL) return;
 
 	auto tablen{ findRealArrayLength(luactx) };
 	for (lua_Integer i{ 0 }; i < tablen; ++i) {
 		// we keep a copy of this table on the stack (for reference stuff...)
-		pushYYCScriptArgs(luactx, newargc, newargs);
+		pushYYCScriptArgs(luactx, newargc, newargs.get());
 
 		// function
 		lua_pushinteger(luactx, 1 + i);
@@ -463,26 +470,18 @@ void LMS::Lua::doScriptHookCall(bool& callorig, bool& callafter, const std::stri
 		// fetch args, they *should* be at the stacktop:
 		newargc = static_cast<int>(findRealArrayLength(luactx));
 
-		if (newargs != args && newargs) {
-			delete[] newargs;
-		}
-
-		if (newargarr) {
-			delete[] newargarr;
-		}
-
-		newargarr = nullptr;
 		newargs = nullptr;
+		newargarr = nullptr;
 
 		if (newargc > 0) {
-			newargarr = new RValue[newargc];
-			newargs = new RValue*[newargc];
-			for (int i{ 0 }; i < newargc; ++i) {
-				lua_pushinteger(luactx, 1 + i);
+			newargarr = std::make_unique<RValue[]>(newargc);
+			newargs = std::make_unique<RValue*[]>(newargc);
+			for (int ii{ 0 }; ii < newargc; ++ii) {
+				lua_pushinteger(luactx, 1 + ii);
 				lua_gettable(luactx, -2);
-				newargarr[i] = luaToRValue(luactx, lua_gettop(luactx));
+				newargarr[ii] = luaToRValue(luactx, lua_gettop(luactx));
 				lua_pop(luactx, 1);
-				newargs[i] = &newargarr[i];
+				newargs[ii] = &newargarr[ii];
 			}
 		}
 
@@ -502,8 +501,18 @@ RValue& LMS::Lua::HookScriptRoutine(CInstance* selfinst, CInstance* otherinst, R
 	auto trampoline{ ScapegoatScripts[index].t };
 
 	int newargc{ argc };
-	RValue* newargarr{ nullptr };
-	RValue** newargs{ args };
+	std::unique_ptr<RValue*[]> newargs{  };
+	std::unique_ptr<RValue[]> newargarr{  };
+
+	/* need to copy arguments... */
+	if (newargc > 0) {
+		newargarr = std::make_unique<RValue[]>(newargc);
+		newargs = std::make_unique<RValue*[]>(newargc);
+		for (auto i{ 0 }; i < newargc; ++i) {
+			newargarr[i] = *(args[i]);
+			newargs[i] = &newargarr[i];
+		}
+	}
 
 	auto callorig{ true };
 	auto callafter{ true };
@@ -524,19 +533,19 @@ RValue& LMS::Lua::HookScriptRoutine(CInstance* selfinst, CInstance* otherinst, R
 	if (!skiphooks) {
 		lua_pushstring(luactx, beforekey.c_str());
 		lua_gettable(luactx, -2);
-		doScriptHookCall(callorig, callafter, "Before", beforekey, Result, newargarr, newargs, newargc, args);
+		doScriptHookCall(callorig, callafter, "Before", beforekey, Result, newargarr, newargs, newargc);
 		lua_pop(luactx, 1); // pop before table.
 	}
 
 	if (callorig && trampoline) {
-		trampoline(selfinst, otherinst, Result, newargc, newargs);
+		trampoline(selfinst, otherinst, Result, newargc, newargs.get());
 	}
 
 	/* after hooks */
 	if (!skiphooks) {
 		lua_pushstring(luactx, afterkey.c_str());
 		lua_gettable(luactx, -2);
-		doScriptHookCall(callorig, callafter, "After", beforekey, Result, newargarr, newargs, newargc, args);
+		doScriptHookCall(callorig, callafter, "After", beforekey, Result, newargarr, newargs, newargc);
 		lua_pop(luactx, 1); // pop after table.
 	}
 
@@ -545,10 +554,6 @@ RValue& LMS::Lua::HookScriptRoutine(CInstance* selfinst, CInstance* otherinst, R
 	lua_pop(luactx, 1); // lms
 
 	/* deallocate args: */
-	if (newargs && newargs != args) delete[] newargs;
-	newargs = nullptr;
-	if (newargarr) delete[] newargarr;
-	newargarr = nullptr;
 	tmpFlags = HookBitFlags::SKIP_NONE;
 
 	/* restore curself and curother */
@@ -700,7 +705,7 @@ void LMS::Lua::doEventHookCall(bool& callorig, bool& callafter, const std::strin
 
 		if (diff != 0) {
 			auto action{ HookBitFlags::SKIP_NONE };
-			if (lua_type(luactx, -1) == LUA_TNUMBER) action = static_cast<HookBitFlags>(lua_tonumber(luactx, -1));
+			if (lua_type(luactx, -1) == LUA_TNUMBER) action = static_cast<HookBitFlags>(static_cast<lua_Integer>(lua_tonumber(luactx, -1)));
 			lua_pop(luactx, 1);
 			--diff;
 			if (diff > 0) {
@@ -1321,12 +1326,12 @@ int LMS::Lua::mtStructCall(lua_State* pL) {
 		return 0;
 	}
 
-	RValue* args{ nullptr };
-	RValue** yyc_args{ nullptr };
+	std::unique_ptr<RValue[]> args{  };
+	std::unique_ptr<RValue*[]> yyc_args{  };
 	int argc{ lua_gettop(pL) - 1 };
 	if (argc > 0) {
-		args = new RValue[argc];
-		yyc_args = new RValue*[argc];
+		args = std::make_unique<RValue[]>(argc);
+		yyc_args = std::make_unique<RValue* []>(argc);
 		for (int i{ 0 }; i < argc; ++i) {
 			args[i] = luaToRValue(pL, i + 2);
 			yyc_args[i] = &args[i];
@@ -1334,17 +1339,21 @@ int LMS::Lua::mtStructCall(lua_State* pL) {
 	}
 
 	RValue res{ nullptr };
-	res = YYGML_CallMethod(curSelf, curOther, res, argc, **optr, yyc_args);
+
+	try {
+		res = YYGML_CallMethod(curSelf, curOther, res, argc, **optr, yyc_args.get());
+	}
+	catch (const YYGMLException& e) {
+		if (LMS_ExceptionHandler) {
+			LMS_ExceptionHandler(e.GetExceptionObject());
+		}
+		else {
+			throw;
+		}
+	}
 
 	/* an argument might be inside those args so we convert first, then free YYC args. */
 	rvalueToLua(pL, res);
-
-	if (argc > 0) {
-		delete[] yyc_args;
-		yyc_args = nullptr;
-		delete[] args;
-		args = nullptr;
-	}
 
 	return 1;
 }
@@ -1382,13 +1391,22 @@ int LMS::Lua::apiCreateAsyncEvent(lua_State* pL) {
 	if (!isn1) return luaL_argerror(pL, 1, "Argument1 cannot be converted to a number.");
 	if (!isn2) return luaL_argerror(pL, 2, "Argument2 cannot be converted to a number.");
 
-	Create_Async_Event(static_cast<int>(dsmap), static_cast<int>(evsubtype));
+	if (lua_gettop(pL) < 3 || lua_type(pL, 3) == LUA_TNIL) {
+		Create_Async_Event(static_cast<int>(dsmap), static_cast<int>(evsubtype));
+	}
+	else {
+		int isn3{};
+		auto bufindex{ lua_tonumberx(pL, 3, &isn3) };
+		if (!isn3) return luaL_argerror(pL, 3, "Argument3 cannot be converted to a number.");
+		CreateAsynEventWithDSMapAndBuffer(static_cast<int>(dsmap), static_cast<int>(bufindex), static_cast<int>(evsubtype));
+	}
+
 	return 0;
 }
 
 int LMS::Lua::apiSignalScriptAction(lua_State* pL) {
 	int isn{};
-	auto tmp{ static_cast<HookBitFlags>(lua_tonumberx(pL, 1, &isn)) };
+	auto tmp{ static_cast<HookBitFlags>(static_cast<lua_Integer>(lua_tonumberx(pL, 1, &isn))) };
 	if (!isn) return luaL_argerror(pL, 1, "Argument1 cannot be converted to a number.");
 	tmpFlags = tmp;
 	return 0;
@@ -1649,6 +1667,68 @@ VOID WINAPI LMS::Lua::ovCompletionRoutine(
 	}
 }
 
+int LMS::Lua::exceptionHandler(const RValue& e) {
+	RValue e_message{}, e_longMessage{}, e_script{}, e_line{}, e_stacktrace{};
+	e.pObj->m_getOwnProperty(e.pObj, &e_message, "message");
+	e.pObj->m_getOwnProperty(e.pObj, &e_longMessage, "longMessage");
+	e.pObj->m_getOwnProperty(e.pObj, &e_script, "script");
+	e.pObj->m_getOwnProperty(e.pObj, &e_line, "line");
+	e.pObj->m_getOwnProperty(e.pObj, &e_stacktrace, "stacktrace");
+
+	lua_newtable(luactx);
+	auto exctab{ lua_gettop(luactx) };
+
+	lua_pushstring(luactx, "is_lms_exception");
+	lua_pushboolean(luactx, true);
+	lua_settable(luactx, exctab);
+
+	lua_pushstring(luactx, "e_class");
+	lua_pushstring(luactx, e.pObj->m_class);
+	lua_settable(luactx, exctab);
+
+	lua_pushstring(luactx, "e_message");
+	lua_pushstring(luactx, e_message.pString->get());
+	lua_settable(luactx, exctab);
+
+	lua_pushstring(luactx, "e_longMessage");
+	lua_pushstring(luactx, e_longMessage.pString->get());
+	lua_settable(luactx, exctab);
+
+	lua_pushstring(luactx, "e_script");
+	lua_pushstring(luactx, e_script.pString->get());
+	lua_settable(luactx, exctab);
+
+	lua_pushstring(luactx, "e_line");
+	lua_pushnumber(luactx, static_cast<double>(e_line));
+	lua_settable(luactx, exctab);
+
+	lua_pushstring(luactx, "e_stacktrace");
+	lua_newtable(luactx);
+	auto stacktab{ lua_gettop(luactx) };
+	if ((( e_stacktrace.kind & MASK_KIND_RVALUE) == VALUE_ARRAY)
+		&& e_stacktrace.pArray
+		&& e_stacktrace.pArray->pArray
+		&& e_stacktrace.pArray->length > 0) {
+
+		auto thelen{ e_stacktrace.pArray->length };
+		for (auto i{ 0 }; i < thelen; ++i) {
+			const auto& item{ e_stacktrace.pArray->pArray[i] };
+			lua_pushinteger(luactx, 1 + i);
+			if ((item.kind & MASK_KIND_RVALUE) == VALUE_STRING) {
+				lua_pushstring(luactx, item.pString->get());
+			}
+			else {
+				lua_pushnumber(luactx, static_cast<double>(item));
+			}
+			lua_settable(luactx, stacktab);
+		}
+	}
+	lua_settable(luactx, exctab);
+
+	/* the return value is ignored but we better return for Lua error magic to work. */
+	return lua_error(luactx);
+}
+
 int LMS::Lua::apiSetFileWatchFunction(lua_State* pL) {
 	lua_getglobal(pL, "LMS");
 	lua_pushstring(pL, "Garbage");
@@ -1812,6 +1892,20 @@ int LMS::Lua::apiNext(lua_State* pL) {
 	return after - argc;
 }
 
+int LMS::Lua::apiCatchGmlExceptions(lua_State* pL) {
+	auto oldstate{ LMS_ExceptionHandler != nullptr };
+
+	if (lua_gettop(pL) > 0 && lua_type(pL, 1) != LUA_TNIL && (lua_toboolean(pL, 1) || lua_tonumber(pL, 1) > 0.5 || lua_tointeger(pL, 1) > 0)) {
+		LMS_ExceptionHandler = &exceptionHandler;
+	}
+	else {
+		LMS_ExceptionHandler = nullptr;
+	}
+
+	lua_pushboolean(pL, oldstate);
+	return 1;
+}
+
 RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 	arraySetOwner();
 	switch (lua_type(pL, index)) {
@@ -1826,11 +1920,11 @@ RValue LMS::Lua::luaToRValue(lua_State* pL, int index) {
 		}
 
 		case LUA_TBOOLEAN: {
-			return RValue{ static_cast<bool>(lua_toboolean(pL, index)) };
+			return RValue{ static_cast<bool>(lua_toboolean(pL, index) ? true : false) };
 		}
 
 		case LUA_TLIGHTUSERDATA: {
-			return RValue{ const_cast<void*>(lua_topointer(pL, index)) };
+			return RValue{ lua_topointer(pL, index) };
 		}
 
 		case LUA_TNUMBER: {
@@ -2094,29 +2188,17 @@ int LMS::Lua::apiHookEvent(lua_State* pL) {
 }
 
 int LMS::Lua::luaRuntimeCall(lua_State* pL) {
-	RValue retval{ nullptr }; // `undefined` aka Nil is the default return value.
-	RFunction* old{ *g_ppFunction };
-	RFunction* cur{ reinterpret_cast<RFunction*>(const_cast<void*>(lua_topointer(pL, lua_upvalueindex(1)))) };
-	(*g_ppFunction) = cur;
-
-	RValue* args{ nullptr };
+	std::unique_ptr<RValue[]> args{  };
 	int argc{ lua_gettop(pL) };
 	if (argc > 0) {
-		args = new RValue[argc];
+		args = std::make_unique<RValue[]>(argc);
 		for (int i{ 0 }; i < argc; ++i) {
 			args[i] = luaToRValue(pL, i + 1);
 		}
 	}
 	
-	cur->f_routine(retval, curSelf, curOther, argc, args);
-	rvalueToLua(pL, retval);
-
-	if (args) {
-		delete[] args;
-		args = nullptr;
-	}
-
-	(*g_ppFunction) = old;
+	RValue rcallres{ rdcall(reinterpret_cast<RFunction*>(const_cast<void*>(lua_topointer(pL, lua_upvalueindex(1)))), curSelf, curOther, argc, args.get()) };
+	rvalueToLua(pL, rcallres);
 
 	return 1;
 }
@@ -2493,11 +2575,11 @@ int LMS::Lua::apiWith(lua_State* pL) {
 	if (isNumber) {
 		if (rvnum == -1.0) {
 			// self
-			key = curSelf;
+			key = RValue{ reinterpret_cast<YYObjectBase*>(curSelf) };
 		}
 		else if (rvnum == -2.0) {
 			// other
-			key = curOther;
+			key = RValue{ reinterpret_cast<YYObjectBase*>(curOther) };
 		}
 		// -3 is `all`, handled below, just ignores the object index.
 		else if (rvnum == -4.0) {
@@ -2507,7 +2589,7 @@ int LMS::Lua::apiWith(lua_State* pL) {
 		}
 		else if (rvnum == -5.0) {
 			// `global`, yes, I permit a `global` with(), at your own risk of course :p
-			key = g_pGlobal;
+			key = RValue{ g_pGlobal };
 		}
 		else if (rvnum >= 100000.0) {
 			// typical instance id, gladly @@GetInstance@@ will get the YYobjectbase that belongs to that ID.
@@ -2605,6 +2687,9 @@ void LMS::Lua::initApi(lua_State* pL) {
 	lua_settable(pL, -3);
 	lua_pushstring(pL, "clearConsole");
 	lua_pushcfunction(pL, &apiClearConsole);
+	lua_settable(pL, -3);
+	lua_pushstring(pL, "catchGMLExceptions");
+	lua_pushcfunction(pL, &apiCatchGmlExceptions);
 	lua_settable(pL, -3);
 	lua_pushstring(pL, "fSkipNextHook");
 	lua_pushinteger(pL, HookBitFlags::SKIP_NEXT);
