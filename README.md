@@ -1,6 +1,10 @@
 # ModShovel
 A modding API targeted mainly at Shovel Knight: Pocket Dungeon for Windows.
 
+***DEPRECATED: See February YCG Presents blogpost for more information!***
+
+***SK:PD will get official modding support, this source code is for education purposes only.***
+
 This joke is not endorsed or in any way sponsored by Yacht Club Games and/or YoYo Games Ltd.
 
 plz dont kill me.
