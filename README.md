@@ -23,5 +23,5 @@ plz dont kill me.
 
 ## Credits
 
-- [Lua 5.4.3](https://lua.org) Copyright (C) 1994-2021 Lua.org, PUC-Rio. R. Ierusalimschy, L. H. de Figueiredo, W. Celes.
+- [Lua 5.4.3 (old builds) 5.4.4 (new builds)](https://lua.org) Copyright (C) 1994-2021 Lua.org, PUC-Rio. R. Ierusalimschy, L. H. de Figueiredo, W. Celes.
 - [MinHook](https://github.com/TsudaKageyu/minhook) TsudaKageyu and contributors.
